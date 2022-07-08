@@ -244,7 +244,9 @@ Both timeout and bind failure will lead the pod to Unreserve,we need to handle i
 (1)When the pod is timeout,we need to release the resource of the assined pods and set the ScheduleCycleInValid of the gang to true ,which make the remaining pods not pass the PreFilter stage,then we will patch a timeout annotation to each gang's pod, and these pod won't be scheduled again.
 
 
-(2)When the pod binds failed, In Strict Mode, we will do the same as time out;In NonStrict Mode,we do nothing to continue scheduling the remaing pods.
+(2)When the pod binds failed, In Strict Mode, we will release the resource of the assined pods and set the ScheduleCycleInValid of the gang to true;
+
+In NonStrict Mode,we do nothing but continue scheduling the remaining pods.
 
 
 5.Init
