@@ -162,8 +162,7 @@ type QueueSortPlugin interface{
 ##### detail
 We introduce Gang and BundleInfo for record gang status in scheduler memory. We especially explain ScheduleCycle and ChildrenScheduleRoundMap.
 These variables control bundle's scheduling cycle. at the beginning, ScheduleCycle is 1. when each pod comes to pre-filter, we will check pod's value in 
-ChildrenScheduleRoundMap is smaller than ScheduleCycle. If result is valid, means the pod is in valid schedule cycle. If result is invalid, means pre-filter 
-should reject the pod. no matter valid or invalid, we make pod's value in ChildrenScheduleRoundMap equal to ScheduleCycle value. when the last pod comes to 
+ChildrenScheduleRoundMap is euqal to the  ScheduleCycle which means they are scheduled  at the same peace. If so, we continue to do the preFilter logic. If they are  not euqal, we set the pod's cycle in ChildrenScheduleRoundMap equal with ScheduleCycle. Finally,  when the last pod comes to 
 make all ChildrenScheduleRoundMap's value equal to ScheduleCycle, ScheduleCycle added by 1, which means a new schedule cycle.
 
 We continue to explain ScheduleCycleValid. in strict-mode, when a pod failed for scheduling, we will set ScheduleCycleValid to false in post-filter, which means in 
@@ -188,7 +187,7 @@ type BundleInfo struct {
     TotalChildrenNum            int
 
     ScheduleCycle                int
-    ScheduleCycleValid           bool
+    ScheduleCycleInValid           bool
     ChildrenScheduleRoundMap     map[string]int
 }
 
@@ -197,7 +196,6 @@ type GangScheduling struct {
     gangClient                  gangClient.Interface
     podLister                   listerv1.PodLister
     snapshotSharedLister        framework.SharedLister
-    rejectCache                 map[string]bool
     podSchedulingCycleCache     map[string]int
     gangCache                   map[string]*Gang
 }
@@ -239,9 +237,15 @@ and we set gang bound to true, then update gang-status crd, after that any new s
 ii.If it didn't meet the expected requirement, in non-strict-mode we will keep the pods continuous waiting until the gang is time out. 
 In strict-mode we will release the assumed pods.
 
-4.MonitorLoop
+4. Unreserve
 
-We will check whether gang is timeout. if timeout, we will patch a timeout annotation to each gang's pod, and these pod won't be scheduled again.
+Both timeout and bind failure will lead the pod to Unreserve,we need to handle it  separately:
+
+(1)When the pod is timeout,we need to release the resource of the assined pods and set the ScheduleCycleInValid of the gang to true ,which make the remaining pods not pass the PreFilter stage,then we will patch a timeout annotation to each gang's pod, and these pod won't be scheduled again.
+
+
+(2)When the pod binds failed, In Strict Mode, we will do the same as time out;In NonStrict Mode,we do nothing to continue scheduling the remaing pods.
+
 
 5.Init
 
