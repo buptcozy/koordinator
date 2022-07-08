@@ -237,7 +237,7 @@ and we set gang bound to true, then update gang-status crd, after that any new s
 ii.If it didn't meet the expected requirement, in non-strict-mode we will keep the pods continuous waiting until the gang is time out. 
 In strict-mode we will release the assumed pods.
 
-4. Unreserve
+4.Unreserve
 
 Both timeout and bind failure will lead the pod to Unreserve,we need to handle it  separately:
 
