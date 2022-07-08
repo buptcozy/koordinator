@@ -261,7 +261,7 @@ gang-status crd is only used for query gang status from outside. the reason is:
 3.When all pod deleted, we will delete gang-crd automatically.
    
 ```go
-type GangStatus struct {
+type Gang struct {
     metav1.TypeMeta
     metav1.ObjectMeta
     Spec   GangSpec
