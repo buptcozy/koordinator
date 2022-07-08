@@ -171,7 +171,6 @@ this schedule cycle, the remaining pods should be rejected in pre-filter stage. 
 type Gang struct {
     Name                 string
     WaitTime             time.Duration 
-    Timer                *util.CancellableTimer // timer to rollback allocs of gang
     Bundles              map[string]*BundleInfo
     PodToBundleMap       map[string]*BundleInfo // podNamespace+"/"+podName
     HasBound             bool                   // whether is bound
