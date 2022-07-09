@@ -36,7 +36,7 @@ authors:
       * [Implementation Details](#Implementation-Details)
         * [QueueSortPlugin](#QueueSortPlugin)
         * [GangSchedulingPlugin](#GangSchedulingPlugin)
-        * [gang crd](#gang-crd)   
+        * [gang-status crd](#gang-status-crd)   
     * [Unsolved Problems](#Unsolved-Problems)
     * [Alternatives](#Alternatives)
     * [Implementation History](#Implementation-History)
