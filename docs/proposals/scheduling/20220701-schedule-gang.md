@@ -44,8 +44,8 @@ authors:
 <!--te-->
 
 ## Summary
-This proposal describes a structure of the gang with bundles to supports multiple roles under the gang,which is fair for gang scheduling with large workloads.
-and also describes a gang scheduling that can be configured in strict mode and non-strict mode,In strict mode, if a pod of the gang fails to pass the Prefilter stage, we ignore the entire bundle task (release occupied resources and wait for the next cycle of scheduling),which is known as All-or-Nothing; In non-strict mode, we try our best to schedule each gang's pod within the specified time.
+This proposal describes a structure of the gang with bundles to supports multiple roles under the gang,which is fair for gang scheduling with large tasks amount.
+and also describes a gang scheduling that can be configured in strict mode and non-strict mode,In strict mode, if a pod of the gang fails to pass the Prefilter stage, we ignore the entire bundle task (release occupied resources and put the gang for the next cycle of scheduling),which is known as All-or-Nothing; In non-strict mode, we try our best to schedule each gang's pod within the specified time.
 
 ## Motivation
 
@@ -184,17 +184,17 @@ provide gang-cache to store data and gang-controller to monitor gang status.
 1.Gang
 
 We design the gang for record gang status in scheduler memory,it has the "Bundles" field to store the gang's children by bundle name(there is an exampale in API
- section above),and we can also find BundleInfo from "PodToBundleMap" field according to the pod's NamespacedName; We can check the "Satisfied" field to see if the gang is 
+ section above),and we can also find BundleInfo from "PodToBundleMap" field according to the pod's NamespacedName; We can check the "ResourceSatisfied" field to see if the gang is already has the minNum assumed pods in each bundle.
 
 2.BundlInfo
 
-We can get the pods from "Children" field,and the "BoundChildren","WaitingForBindChildren" store the pods phase.
+We can get the children pods from "Children" field,and the "BoundChildren","WaitingForBindChildren" store the pods binding status,which is used to check if the pod can pass Permit stage.
 
-We especially explain "ScheduleCycle" and "ChildrenScheduleRoundMap" field.These fields control bundle's scheduling cycle. at the beginning, ScheduleCycle is 1. when each pod comes to pre-filter, we will check if the pod's value in 
+We especially explain "ScheduleCycle" and "ChildrenScheduleRoundMap" field.These fields control bundle's scheduling cycle. at the beginning, ScheduleCycle is 1,and each pod's cycle in ChildrenScheduleRoundMap is also 1. When each pod comes to pre-filter, we will check if the pod's value in 
 ChildrenScheduleRoundMap is euqal to the ScheduleCycle,which means they are scheduled at the same peace. If so, we continue to do the preFilter logic. If they are not euqal, we set the pod's cycle in ChildrenScheduleRoundMap equal with ScheduleCycle.Finally,when the last pod comes to 
 make all ChildrenScheduleRoundMap's value equal to ScheduleCycle, ScheduleCycle added by 1, which means a new schedule cycle.And we need to set the ScheduleCycleValid to true.
 
-We continue to explain "ScheduleCycleValid" field,during the scheduling,if it set to "false",means any pod in this bundle shouldn't be scheduled(pods in Permit stage should release the resource ,pods that hasn't come to PreFilter stage will be rejected at PreFilter stage) until it is set to "true". So when a pod failed at Filter, we will set ScheduleCycleValid to false in post-filter, which means 
+We continue to explain "ScheduleCycleValid" field,during the scheduling,if it set to "false",means any pod in this bundle shouldn't be scheduled(pods in Permit stage should release the resource ,pods that hasn't come to PreFilter stage will be rejected at PreFilter stage) until it is set to "true". So when a pod failed at Filter, we will set ScheduleCycleValid to false in Post-Filter stage, which means 
 the remaining pods should be rejected in pre-filter stage. Only When ScheduleCycle added by 1, we will reset the ScheduleCycleValid to true.
 ```go
 type Gang struct {
@@ -202,7 +202,7 @@ type Gang struct {
     WaitTime             time.Duration 
     Bundles              map[string]*BundleInfo
     PodToBundleMap       map[string]*BundleInfo // podNamespace+"/"+podName
-    Satisfied             bool                   // whether the each bundle's assumed pods with the MinRequiredNumber
+    ResourceSatisfied             bool                   // whether the each bundle's assumed pods with the MinRequiredNumber
     IsStrictMode         bool                   //whether is in strictMode
 }
 
@@ -233,18 +233,20 @@ type GangScheduling struct {
 ```
 ###### Scheduling Process
 
-during the whole kubernetes shceduling process,we only need to inject our logic into three extention points as below:
+during the whole kubernetes shceduling process,we only need to realize our logic into four extention points as below:
 ```go
 var(
      _ framework.PreFilterPlugin = &GangScheduling{}
      _ framework.PostFilterPlugin = &GangScheduling{}
      _ framework.PermitPlugin = &GangScheduling{}
+     _ framework.ReservePlugin = &Coscheduling{}
 )
 type GangScheduling interface{
     ActiveGang(pod *corev1.Pod, state *framework.CycleState)
     PreFilter(context.Context, *corev1.Pod) error
     PostFilter(ctx context.Context, state *CycleState, pod *v1.Pod, filteredNodeStatusMap NodeToStatusMap) (*PostFilterResult, *Status)
     Permit(context.Context, *corev1.Pod) Status
+    Unreserve(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string)
 }
 
 ```
@@ -254,18 +256,18 @@ if non-strict-mode, we only do step1 and step2:
 
 (1)Whether the bundle has met the requirements of minNum under each bundle, if not, reject the pod.
 
-(2)Whether the gang has been timeout(check the pod's annotation,introduced at Permit), if yes, reject the pod.
+(2)Whether the gang has been timeout(check the pod's annotation,later introduced at Permit section ), if so, reject the pod.
 
 (3)Whether the bundle has met the ScheduleCycleValid check, if not, reject the pod.
 
-(4).Try update ScheduleCycle and ChildrenScheduleRoundMap as mentioned above.
+(4)Try update ScheduleCycle and ChildrenScheduleRoundMap as mentioned above.
 
 
 2.PostFilter
 
 At this point means the pod didn't pass the Filter Plugin,we need to decide whether continue scheduling remained children pods of the bundle.
 
-(1)If is strict-mode,we will check the how many pods is in the WaitingForBindChildren map to see if the assumed pods is greater than MinRequiredNumber, if so we will set ScheduleCycleValid to false and release the assumed pods(reject the pods in Permit stage).
+(1)If is strict-mode,we will check the how many pods is in the WaitingForBindChildren map to see if the assumed pods is greater than MinRequiredNumber, if so we will set ScheduleCycleValid to false and release the assumed pods(to reject the pods in Permit stage).
 
 (2)If non-strict mode, we will continue to maintain resource occupancy for the assigned pod within the valid time, and continue to schedule subsequent pods to expect that the scheduling conditions will be met.
 
@@ -276,21 +278,21 @@ Any pod passes Filter stage and has already assumed node resource will come to t
 (1)If it is not satisfied, we will give the pod a "Wait" Status with a timeout number(gang's WaitTime),
 and later the bind goroutine will keep waiting until the pod is timeout.Then we run the ActiveGang method,it can put all the pods in unscheduablePods or backoffQueue belongs to the gang back to activeQueue after Permit stage,which will make NonStrict Mode more more efficient(no need to wait for the schduler Queue's Loop time)
 
-Let's talk about the pod waiting in the Permit stage,here we consider the gang's scheduling start time is when the first pod comes to the Permit stage.So if the first pod times out later,we will regard the whole gang is time out and 
-we will give an annotation like "gang.koordinater.io/timeOut:"true"" to all the pods belong to the gang,then release the resource of all the assumed pods.Before time out,we have chance to wait for the remaining pods to be assumed.
+Let's talk about the pod waiting in the Permit stage,here we consider the gang's scheduling start time is when the first pod comes to the Permit stage.So if the first pod times out later,we will handle it at Unreserve stage.But before time out,we have chance to wait for the remaining pods to be assumed,this is why we should keep the pod waiting at this stage.
 
 (2)If it is satisfied, we will give each pod in this stage a "Success" status, and we set gang's Satisfied to true, then update gang-status crd, after that any new scheduling event(may be due to reschedule) won't be rejected by gang.
 
 
 4.Unreserve
 
-We didn't do anything at this stage,since when the pod in Permit stage is timeout or it binds failed will lead the pod to Unreserve stage:
+When the pod in Permit stage is timeout or it binds failed will lead the pod to Unreserve stage,we can tell from the gang's "ResourceSatisfied" field,if the field is true means the pod bind failed,if it is false means the gang is timeout.
 
-(1)When the pod is timeout,we handle it at Permit stage.
+(1)When the pod that first comes to the Permit stage given a "Wait" Status is timeout,we will regard the whole gang is time out, So we will 
+we will give an annotation like "gang.koordinater.io/timeOut:"true"" to all the pods belong to the gang,and then release the resource of all the assumed pods,which means the gang will not be scheduled any more,user should manually handles the timeout event.
 
 
 (2)When the pod binds failed, we didn't care about the binding result,because the gang scheduing is responsible for assuming the resource for all pods in each bundle,once they pass the Permit stage means the gang has resource satisfied, and gang's duty is over,
-so any pod failed bind,we should only regard the pod as the regular pod next time when it is scheduled,so we want the pod that bind failed and the pod which be preemted handled by the upper level.
+so any pod failed bind,we should only regard the pod as the regular pod next time when it is scheduled,so we want the pod that bind failed and the pod which be preemted handled by the upper level.We do nothing in this case.
 
 
 5.Init
