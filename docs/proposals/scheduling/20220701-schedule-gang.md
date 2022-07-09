@@ -54,7 +54,7 @@ We compared with the two gang designs of the community:
 ### Compared with competitors
 
 #### Coescheduling
-(1) Coescheduling schedules a group of gang tasks ,when the cluster resources are not satisfied, it will release all task resources and schedule the gang task in next scheduling cycle.
+1.Coescheduling schedules a group of gang tasks ,when the cluster resources are not satisfied, it will release all task resources and schedule the gang task in next scheduling cycle.
 For example, there is a gang task that requires 10 tasks to be scheduled,when the resources of first 5 tasks are allocated, the 6th task cannot pass Filter for some reason,
 Coescheduling will release the first 5 tasks' resource and ignore the remaining 4 tasks in this scheduling cycle.
 
@@ -64,12 +64,12 @@ In the future, we will develop a plugin to solve the gang deadlock.
 
 Therefore, we make this function a configuration item. The user can choose whether to set Strict Mode. In Strict Mode, each bundle's scheduling decisions will be made All Or Nothing , otherwise we will only ignore the pod that failed at Filter point and continue to schedule the remaining pods.
 
-(2) There are often distributed training scenarios like this: Only when a job that wants PS role's resource holding reaches to 50% and the Worker role 's resource holding reaches to %100, the entire job task will be pulled up.
+2.There are often distributed training scenarios like this: Only when a job that wants PS role's resource holding reaches to 50% and the Worker role 's resource holding reaches to %100, the entire job task will be pulled up.
 PodGroups cannot be classified according to task roles.
 
 Our gang scheduling will be divided into different bundles according to bundleName,gang can distinguish different roles by bundles, and each bundle can set its own minNum requirements.
 
-(3) When a gang is decided to ignore during this gang scheduling cycle, we should let the remaining pods in the queue to know that they are given up in this gang scheduling cycle.
+3.When a gang is decided to ignore during this gang scheduling cycle, we should let the remaining pods in the queue to know that they are given up in this gang scheduling cycle.
 Coescheduling caches the flag with an expiration time,when the time expires,the flag will be moved from this cache,which means this gang's scheduling cycle is over; we don't think get the scheduling cycle process of a gang based on time is really accurate.
 Because it is hard to estimate how long a cycle of scheduling gang is. If the time is set too small, the whole gang scheduling will not be correct; if it is set too large,there will be the waste of time
 
