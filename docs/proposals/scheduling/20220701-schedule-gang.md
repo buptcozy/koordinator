@@ -250,7 +250,7 @@ type GangScheduling interface{
 }
 
 ```
-1.PreFilter
+1.**PreFilter**
 
 if non-strict-mode, we only do step1 and step2:
 
@@ -263,7 +263,7 @@ if non-strict-mode, we only do step1 and step2:
 (4)Try update ScheduleCycle and ChildrenScheduleRoundMap as mentioned above.
 
 
-2.PostFilter
+2.**PostFilter**
 
 At this point means the pod didn't pass the Filter Plugin,we need to decide whether continue scheduling remained children pods of the bundle.
 
@@ -271,7 +271,7 @@ At this point means the pod didn't pass the Filter Plugin,we need to decide whet
 
 (2)If non-strict mode, we will continue to maintain resource occupancy for the assigned pod within the valid time, and continue to schedule subsequent pods to expect that the scheduling conditions will be met.
 
-3.Permit
+3.**Permit**
 
 Any pod passes Filter stage and has already assumed node resource will come to this stage.Scheduler will calculate whether the current number of assumed-pods in each bundle meets the bundle's minNum requirement.
 
@@ -283,19 +283,19 @@ Let's talk about the pod waiting in the Permit stage,here we consider the gang's
 (2)If it is satisfied, we will give each pod in this stage a "Success" status, and we set gang's Satisfied to true, then update gang-status crd, after that any new scheduling event(may be due to reschedule) won't be rejected by gang.
 
 
-4.Unreserve
+4.**Unreserve**
 
 When the pod in Permit stage is timeout or it binds failed will lead the pod to Unreserve stage,we can tell from the gang's "ResourceSatisfied" field,if the field is true means the pod bind failed,if it is false means the gang is timeout.
 
-(1)When the pod that first comes to the Permit stage given a "Wait" Status is timeout,we will regard the whole gang is time out, So we will 
-we will give an annotation like "gang.koordinater.io/timeOut:"true"" to all the pods belong to the gang,and then release the resource of all the assumed pods,which means the gang will not be scheduled any more,user should manually handles the timeout event.
+(1)When the pod that first comes to the Permit stage given a "Wait" Status is timeout,we will regard the whole gang is time out, 
+So we will give an annotation like "gang.koordinater.io/timeOut:"true"" to all the pods belong to the gang,and then release the resource of all the assumed pods,which means the gang will not be scheduled any more,user should manually handles the timeout event.
 
 
 (2)When the pod binds failed, we didn't care about the binding result,because the gang scheduing is responsible for assuming the resource for all pods in each bundle,once they pass the Permit stage means the gang has resource satisfied, and gang's duty is over,
-so any pod failed bind,we should only regard the pod as the regular pod next time when it is scheduled,so we want the pod that bind failed and the pod which be preemted handled by the upper level.We do nothing in this case.
+so any pod failed binding later,we should only regard the pod as the regular pod next time when it is scheduled,so we want the pod that bind failed or be preemted will be handled by the the upper level.We do nothing in this case.
 
 
-5.Init
+5.**Init**
 
 We will register pod's event handler to watch pod event and update gang and bundle.
 
