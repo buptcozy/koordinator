@@ -179,7 +179,7 @@ provide gang-cache to store data and gang-controller to monitor gang status.
 2.We should implement gang-crd update\recover logic in gang-plugin
   
 ##### Detail 
-##### Data-Structure
+###### Data-Structure
 
 1.Gang
 
@@ -231,7 +231,7 @@ type GangScheduling struct {
     gangCache                   map[string]*Gang
 }
 ```
-##### Scheduling Process
+###### Scheduling Process
 
 during the whole kubernetes shceduling process,we only need to inject our logic into three extention points as below:
 ```go
@@ -302,7 +302,7 @@ gang-status crd is only used for query gang status from outside. the reason is:
 
 1.Easily to query gang-status
 
-2.Record gang bound status in case scheduler failover.Once the 
+2.Record gang bound status in case scheduler failover.Once the Scheduler recover,
 
 3.When all pod deleted, we will delete gang-crd automatically.
 
@@ -332,5 +332,6 @@ type BundleSpec struct {
 
 ## Unsolved Problems
 ## Alternatives
+1.User can choose wether gang scheduling in Strict Mode(All-Or-Nothing) or NonStrict Mode,we can compatible in both cases.
 ## Implementation History
 ## References
