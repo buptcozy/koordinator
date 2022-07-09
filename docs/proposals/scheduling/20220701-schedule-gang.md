@@ -178,8 +178,8 @@ provide gang-cache to store data and gang-controller to monitor gang status.
 
 2.We should implement gang-crd update\recover logic in gang-plugin
   
-##### Detail
-###### Data Structure
+##### Detail 
+##### Data-Structure
 
 1.Gang
 
@@ -231,7 +231,7 @@ type GangScheduling struct {
     gangCache                   map[string]*Gang
 }
 ```
-###### Scheduling Process
+##### Scheduling Process
 
 during the whole kubernetes shceduling process,we only need to inject our logic into three extention points as below:
 ```go
