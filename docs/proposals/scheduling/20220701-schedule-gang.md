@@ -44,34 +44,34 @@ authors:
 <!--te-->
 
 ## Summary
-This proposal describes a structure of the gang with bundles  to supports multiple roles under the gang,which is fair for gang scheduling with large workloads.
+This proposal describes a structure of the gang with bundles to supports multiple roles under the gang,which is fair for gang scheduling with large workloads.
 and also describes a gang scheduling that can be configured in strict mode and non-strict mode,In strict mode, if a pod of the gang fails to pass the Prefilter stage, we ignore the entire bundle task (release occupied resources and wait for the next cycle of scheduling),which is known as All-or-Nothing; In non-strict mode, we try our best to schedule each gang's pod within the specified time.
 
 ## Motivation
 
-In AI scenarios, lots of jobs  have the need of gang scheduling, that is, after all subtasks are successfully bound, the entire job can run normally,which is the gang scheduling.
+In AI scenarios, lots of jobs have the need of gang scheduling, that is, after all subtasks are successfully bound, the entire job can run normally,which is the gang scheduling.
 We compared with the two gang designs of the community:
 ### Compared with competitors
 
 #### Coescheduling
 (1) Coescheduling schedules a group of gang tasks ,when the cluster resources are not satisfied, it will release all task resources and schedule the gang task in next scheduling cycle.
-For example,  there is a gang task that requires 10 tasks to be scheduled,when the resources of first 5 tasks are allocated, the 6th task cannot pass Filter for some reason,
+For example, there is a gang task that requires 10 tasks to be scheduled,when the resources of first 5 tasks are allocated, the 6th task cannot pass Filter for some reason,
 Coescheduling will release the first 5 tasks' resource and ignore the remaining 4 tasks in this scheduling cycle.
 
-Our gang scheduling can  occupy the resources of first 5 tasks, only ignore the 6th task, then continue scheduling from the 7th task.This is fair for gang  with large tasks amount , but it also brings deadlock problems
+Our gang scheduling can occupy the resources of first 5 tasks, only ignore the 6th task, then continue scheduling from the 7th task.This is fair for gang with large tasks amount , but it also brings deadlock problems
 (Imagine that the resources on a machine are all occupied by two gang tasks, but each gang has not reached the minimum to startup. At this time, both gangs will hold and wait, resulting in a deadlock ),
 In the future, we will develop a plugin to solve the gang deadlock.
 
-Therefore, we make this function a configuration item. The user can choose whether to set Strict Mode. In Strict Mode, each bundle's scheduling decisions will be made  All Or Nothing , otherwise we will only ignore the pod that failed at Filter point and continue to schedule the remaining pods.
+Therefore, we make this function a configuration item. The user can choose whether to set Strict Mode. In Strict Mode, each bundle's scheduling decisions will be made All Or Nothing , otherwise we will only ignore the pod that failed at Filter point and continue to schedule the remaining pods.
 
-(2) There are often  distributed training scenarios like this: Only when a job that wants PS role's resource holding reaches to 50% and the Worker role 's resource holding reaches to %100, the entire job task will be pulled up.
+(2) There are often distributed training scenarios like this: Only when a job that wants PS role's resource holding reaches to 50% and the Worker role 's resource holding reaches to %100, the entire job task will be pulled up.
 PodGroups cannot be classified according to task roles.
 
 Our gang scheduling will be divided into different bundles according to bundleName,gang can distinguish different roles by bundles, and each bundle can set its own minNum requirements.
 
 (3) When a gang is decided to ignore during this gang scheduling cycle, we should let the remaining pods in the queue to know that they are given up in this gang scheduling cycle.
-Coescheduling caches the flag  with an expiration time,when the time expires,the flag will be moved from this cache,which means this gang's scheduling cycle is over; we don't think  get the scheduling cycle process of a gang based on time  is really accurate.
-Because it is hard to estimate how long a cycle of scheduling gang is. If the time is set too small, the whole gang scheduling will not  be correct; if it is set too large,there will be the waste of time
+Coescheduling caches the flag with an expiration time,when the time expires,the flag will be moved from this cache,which means this gang's scheduling cycle is over; we don't think get the scheduling cycle process of a gang based on time is really accurate.
+Because it is hard to estimate how long a cycle of scheduling gang is. If the time is set too small, the whole gang scheduling will not be correct; if it is set too large,there will be the waste of time
 
 #### Volcano
 volcano uses JobInfo as the basic unit for scheduling, in which the scheduler is very different from the community from the data structure to the process, and every time the function is expanded, data conversion is performed, and the connection with the community is not good.
@@ -125,7 +125,7 @@ if we want bind-condition is ps and worker both reach min-required-number condit
 ```
 the annotations above declare the gang's information:
 
-"job1" gang has two bundles("ps" and "worker"), when each bundle's assumed pods all reach to 5,the whole gang task can start to run;The annotation also declares the gang is in StrictMode and the  waitTime is 3600s(the whole gang's schduling valid time).
+"job1" gang has two bundles("ps" and "worker"), when each bundle's assumed pods all reach to 5,the whole gang task can start to run;The annotation also declares the gang is in StrictMode and the waitTime is 3600s(the whole gang's schduling valid time).
 
 if we want bind-condition is ps and worker reach min-required-number condition independently, then we can:
 ```yaml
@@ -174,7 +174,7 @@ type QueueSortPlugin interface{
 ##### target
 
 1.We should create a new gang-plugin to implement PreFilter\PostFilter\Permit\UnReserve stage. in this plugin, we should
-   provide gang-cache to store data and gang-controller to monitor gang status.
+provide gang-cache to store data and gang-controller to monitor gang status.
 
 2.We should implement gang-crd update\recover logic in gang-plugin
   
@@ -184,14 +184,14 @@ type QueueSortPlugin interface{
 1.Gang
 
 We design the gang for record gang status in scheduler memory,it has the "Bundles" field to store the gang's children by bundle name(there is an exampale in API
- section above),and we can also find BundleInfo  from "PodToBundleMap" field according to the pod's NamespacedName; We can check the "Satisfied" field to see if the gang is 
+ section above),and we can also find BundleInfo from "PodToBundleMap" field according to the pod's NamespacedName; We can check the "Satisfied" field to see if the gang is 
 
 2.BundlInfo
 
 We can get the pods from "Children" field,and the "BoundChildren","WaitingForBindChildren" store the pods phase.
 
 We especially explain "ScheduleCycle" and "ChildrenScheduleRoundMap" field.These fields control bundle's scheduling cycle. at the beginning, ScheduleCycle is 1. when each pod comes to pre-filter, we will check if the pod's value in 
-ChildrenScheduleRoundMap is euqal to the  ScheduleCycle,which means they are scheduled  at the same peace. If so, we continue to do the preFilter logic. If they are  not euqal, we set the pod's cycle in ChildrenScheduleRoundMap equal with ScheduleCycle. Finally,  when the last pod comes to 
+ChildrenScheduleRoundMap is euqal to the ScheduleCycle,which means they are scheduled at the same peace. If so, we continue to do the preFilter logic. If they are not euqal, we set the pod's cycle in ChildrenScheduleRoundMap equal with ScheduleCycle.Finally,when the last pod comes to 
 make all ChildrenScheduleRoundMap's value equal to ScheduleCycle, ScheduleCycle added by 1, which means a new schedule cycle.And we need to set the ScheduleCycleValid to true.
 
 We continue to explain "ScheduleCycleValid" field,during the scheduling,if it set to "false",means any pod in this bundle shouldn't be scheduled(pods in Permit stage should release the resource ,pods that hasn't come to PreFilter stage will be rejected at PreFilter stage) until it is set to "true". So when a pod failed at Filter, we will set ScheduleCycleValid to false in post-filter, which means 
@@ -257,8 +257,8 @@ if non-strict-mode, we only do step1 and step2:
 (2)Whether the gang has been timeout(check the pod's annotation,introduced at Permit), if yes, reject the pod.
 
 (3)Whether the bundle has met the ScheduleCycleValid check, if not, reject the pod.
-    
-iv.Try update ScheduleCycle and ChildrenScheduleRoundMap as mentioned above.
+
+(4).Try update ScheduleCycle and ChildrenScheduleRoundMap as mentioned above.
 
 
 2.PostFilter
@@ -270,6 +270,7 @@ At this point means the pod didn't pass the Filter Plugin,we need to decide whet
 (2)If non-strict mode, we will continue to maintain resource occupancy for the assigned pod within the valid time, and continue to schedule subsequent pods to expect that the scheduling conditions will be met.
 
 3.Permit
+
 Any pod passes Filter stage and has already assumed node resource will come to this stage.Scheduler will calculate whether the current number of assumed-pods in each bundle meets the bundle's minNum requirement.
 
 (1)If it is not satisfied, we will give the pod a "Wait" Status with a timeout number(gang's WaitTime),
@@ -282,7 +283,8 @@ we will give an annotation like "gang.koordinater.io/timeOut:"true"" to all the 
 
 
 4.Unreserve
-We didn't do anything at this stage,since when the  pod in Permit stage is timeout or it binds failed will lead the pod to Unreserve stage:
+
+We didn't do anything at this stage,since when the pod in Permit stage is timeout or it binds failed will lead the pod to Unreserve stage:
 
 (1)When the pod is timeout,we handle it at Permit stage.
 
