@@ -302,7 +302,7 @@ gang-status crd is only used for query gang status from outside. the reason is:
 
 1.Easily to query gang-status
 
-2.Record gang bound status in case scheduler failover.Once the Scheduler recover,
+2.Record gang bound status in case scheduler failover.Every time when we run the scheduler,we will check the gang crd to rebuild the gang info in the cache.
 
 3.When all pod deleted, we will delete gang-crd automatically.
 
