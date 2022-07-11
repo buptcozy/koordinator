@@ -230,7 +230,7 @@ the pod has been scheduled in this cycle, so we should reject it. When the last 
 equal to `scheduleCycle`, bundle's `scheduleCycle` will be added by 1, which means a new schedule cycle.
 
 We continue to explain `scheduleCycleValid` field, during the scheduling,  When a pod failed at Filter stage, we will set ScheduleCycleValid to 
-false in Post-Filter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true".
+false in PostFilter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true".
 the remaining pods should be rejected in PreFilter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
 
 It should be emphasized that `scheduleCycle\scheduleCycleValid\childrenScheduleRoundMap` only work in `strict-mode`. 
