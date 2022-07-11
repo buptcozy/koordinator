@@ -43,10 +43,10 @@ authors:
 <!--te-->
 
 ## Summary
-This proposal provides gang mechanism for the scheduler to control pods binding opportunity. User can declare a resource-
-collection-minimum number, only when assigned-resources reach the given limitation can trigger the binding. We provide
-`strict-mode` and `non-strict-mode` to control the resource-accumulation-process by a configuration. We also provide a 
-two-level gang description for better matching the real scenario, which is different from community.
+This proposal provides gang mechanism for the scheduler to control pods binding opportunity. User can declare a resource-collection-minimum number, 
+only when assigned-resources reach the given limitation can trigger the binding. We provide `strict-mode` and `non-strict-mode` to 
+control the resource-accumulation-process by a configuration. We also provide a two-level gang description for better matching 
+the real scenario, which is different from community.
 
 ## Motivation
 In AI scenarios, lots of jobs need gang scheduling. The community have lots of related implements such `coescheduling` or `vocalno`.
@@ -55,17 +55,16 @@ However, in practice we find that the above solutions do not meet the needs of t
 ### Compared with competitors
 
 #### Coescheduling
-1.`coescheduling` implement a new queue-sort interface and other methods to let one gang's pods get out of the queue in order as much as possible.
+1. `coescheduling` implement a new queue-sort interface and other methods to let one gang's pods get out of the queue in order as much as possible.
 If a pod failed to be scheduled, the requests that have been successfully scheduled in this round of gang scheduling cycle will be rolled back,
 and the remaining pods waiting for scheduling will be rejected in pre-filter check util this scheduling cycle passed. 
 For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
-global time interval to control the gang scheduling cycle.
-
-The first defect is that the uniform time interval will cause some problems.If the time configuration is too long, it will 
-lead to useless waiting; If the time configuration is too short, it will lead to useless scheduling. Secondly, it is very 
-difficult for a large job to meet all resource requests at one time. This mechanism will lead to a very low probability of 
-full resources, and eventually make the job starve to death. We call this process as `strict-mode`.
+global time interval to control the gang scheduling cycle. The first defect is that the uniform time interval will cause 
+some problems.If the time configuration is too long, it will lead to useless 
+waiting; If the time configuration is too short, 
+it will lead to useless scheduling. Secondly, it is very difficult for a large job to meet all resource requests at one time. 
+This mechanism will lead to a very low probability of full resources, and eventually make the job starve to death. We call this process as `strict-mode`.
 
 2.Some jobs have complex gang requirements. For example, a job has several roles. Each role will have several pods 
 and its own gang conditions. Jobs also need different roles to form different gang groups. All pods in a gang group can 
@@ -77,12 +76,12 @@ volcano uses JobInfo as the basic unit for scheduling and is naturally friendly 
 different from the community from the data structure to the process, which lead negative compatibility with the native k8s community.
 
 ### Goals
-1.Definition API to announce gang-scheduling-configuration.
+1. Definition API to announce gang-scheduling-configuration.
 
-2.Provides a scheduler plugin to achieve gang-scheduling ability.
+2. Provides a scheduler plugin to achieve gang-scheduling ability.
 
 ### Non Goals and Future Work
-1.Provide ability to solve gang-resource-deadlock problems with `non-strict-mode`.
+1. Provide ability to solve gang-resource-deadlock problems with `non-strict-mode`.
 
 ## Proposal
 ### API
@@ -163,12 +162,12 @@ queue sort logic of all plugins, and register them at one time.
 
 In this proposal, we implement the Less function to gather pods belongs to same gang. The specific queuing rule is:
 
-1.Firstly, compare the priorities of the two pods, the higher priority is at the front of the queue.
+1. Firstly, compare the priorities of the two pods, the higher priority is at the front of the queue.
 
-2.Secondly, compare create-time-stamp of two pods, if pod belongs to a gang, then we compare create-time-stamp of the gang, 
+2. Secondly, compare create-time-stamp of two pods, if pod belongs to a gang, then we compare create-time-stamp of the gang, 
 the one created first will be at the front of the queue.
 
-3.Finally, compare pod's namespace, if pod belongs to a gang, then we compare gang name. 
+3. Finally, compare pod's namespace, if pod belongs to a gang, then we compare gang name. 
 
 ```go
 type QueueSortPlugin interface{
@@ -282,7 +281,7 @@ type GangScheduling interface{
 }
 
 ```
-1.**PreFilter**
+###### **PreFilter**
 
 if `non-strict-mode`, we only do step1 and step2:
 
@@ -295,7 +294,7 @@ if `non-strict-mode`, we only do step1 and step2:
 - Try update `scheduleCycle`, `scheduleCycleValid`, `childrenScheduleRoundMap` as mentioned above.
 
 
-2.**PostFilter**
+###### **PostFilter**
 
 At this point means the pod didn't pass the Filter Plugin, we should:
 
@@ -303,7 +302,7 @@ At this point means the pod didn't pass the Filter Plugin, we should:
 
 - If `non-strict mode`, we will do nothing.
 
-3.**Permit**
+###### **Permit**
 
 Any pod passes Filter stage will come to this stage. Scheduler will calculate whether the current number of assumed-pods 
 in each bundle meets the bundle's minimum requirement.
@@ -316,7 +315,7 @@ can be continuously scheduled as much as possible.
 - If gang meet the bind-condition, we will give every waiting pod a "Success" status, which will let the bind goroutine of
 each pod leave the waiting status and continue to run. Also, as mentioned above, we will set gang's `ResourceSatisfied` to true.
 
-4.**Un-reserve**
+###### **Un-reserve**
 
 Both permit stage is timeout and binding failed will lead the pod to un-reserve stage, we can distinguish from gang's "ResourceSatisfied" field,
 if the field is true means binding failed, else means the gang is timeout.
@@ -325,10 +324,10 @@ if the field is true means binding failed, else means the gang is timeout.
 belong to the gang and will release the resource of all the assumed pods. The gang will not be scheduled anymore, 
 user should manually handle the timeout event.
 
-(2)When binding failed, as mentioned above, the collection of gang's resource is over, we will do nothing except roll back
+- When binding failed, as mentioned above, the collection of gang's resource is over, we will do nothing except roll back
 the failed pod resource.
 
-5.**Init**
+###### **Un-reserve**
 
 We will register pod's event handler to watch pod event for updating gang and bundle.
 
@@ -336,7 +335,7 @@ We will register pod's event handler to watch pod event for updating gang and bu
 ## Unsolved Problems
 
 ## Alternatives
-1.User can choose use gang by `strict-mode` and `non-strict-mode` case by case.
+- User can choose use gang by `strict-mode` and `non-strict-mode` case by case.
 
 ## Implementation History
 
