@@ -326,7 +326,7 @@ user should manually handle the timeout event.
 - When binding failed, as mentioned above, the collection of gang's resource is over, we will do nothing except roll back
 the failed pod resource.
 
-###### **Un-reserve**
+###### **Init**
 
 We will register pod's event handler to watch pod event for updating gang and bundle.
 
@@ -334,7 +334,7 @@ We will register pod's event handler to watch pod event for updating gang and bu
 ## Unsolved Problems
 
 ## Alternatives
-- User can choose use gang by `strict-mode` and `non-strict-mode` case by case.
+User can choose use gang by `strict-mode` and `non-strict-mode` case by case.
 
 ## Implementation History
 
