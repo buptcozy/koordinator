@@ -61,7 +61,7 @@ and the remaining pods waiting for scheduling will be rejected in pre-filter che
 For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
 global time interval to control the gang scheduling cycle. The first defect is that the uniform time interval will cause 
-some problems.If the time configuration is too long, it will lead to useless waiting; If the time configuration is too short, 
+some problems. If the time configuration is too long, it will lead to useless waiting; If the time configuration is too short, 
 it will lead to useless scheduling. Secondly, it is very difficult for a large job to meet all resource requests at one time. 
 This mechanism will lead to a very low probability of full resources, and eventually make the job starve to death. We call this process as `strict-mode`.
 
@@ -193,7 +193,7 @@ In future proposal, we will try to fix this problem.
 
 We design the gang to record gang status in scheduler memory, it has the `Bundles` field to store the gang's children by bundle name.
 We can also find BundleInfo from `PodToBundleMap` field according to the pod's NamespacedName. We can check the `ResourceSatisfied`
-field to see if the gang is already has the minNum assumed pods in each bundle. 
+field to see if the gang is already has the minimum number assumed pods in each bundle. 
 
 It should be noted that, if the resource accumulation conditions of gang are met, then some pods failed in the process of binding;
 Or some bound pods are preempted\rescheduled, should the constraints of gang still be effective in the process of resource reallocation? 
@@ -286,9 +286,9 @@ if `non-strict-mode`, we only do step1 and step2:
 
 - Check whether childrens in bundle has met the requirements of minimum number under each bundle, and reject the pod if negative.
 
-- Check whether the gang has been timeout(check the pod's annotation,later introduced at Permit section), and reject the pod if negative.
+- Check whether the gang has been timeout(check the pod's annotation,later introduced at Permit section), and reject the pod if positive.
 
-- Check whether the bundle has met the `scheduleCycleValid` check, and reject the pod if positive.
+- Check whether the bundle has met the `scheduleCycleValid` check, and reject the pod if negative.
 
 - Try update `scheduleCycle`, `scheduleCycleValid`, `childrenScheduleRoundMap` as mentioned above.
 
