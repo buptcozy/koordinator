@@ -57,7 +57,7 @@ However, in practice we find that the above solutions do not meet the needs of t
 #### Coescheduling
 1. `coescheduling` implement a new queue-sort interface and other methods to let one gang's pods get out of the queue in order as much as possible.
 If a pod failed to be scheduled, the requests that have been successfully scheduled in this round of gang scheduling cycle will be rolled back,
-and the remained pods waiting for scheduling will be reject in pre-filter check util this scheduling cycle passed. 
+and the remaining pods waiting for scheduling will be rejected in PreFilter check util this scheduling cycle passed. 
 For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
 global time interval to control the gang scheduling cycle. The first defect is that the uniform time interval will cause 
@@ -75,7 +75,7 @@ volcano uses JobInfo as the basic unit for scheduling and is naturally friendly 
 different from the community from the data structure to the process, which lead negative compatibility with the native k8s community.
 
 ### Goals
-1. Definition API to announce gang-scheduling-configuration.
+1. Define API to announce gang-scheduling-configuration.
 
 2. Provides a scheduler plugin to achieve gang-scheduling ability.
 
@@ -87,7 +87,7 @@ different from the community from the data structure to the process, which lead 
 We advise users declaring gang-scheduling-configuration by pod's annotation. First Reason, high level operator has no need 
 to maintain gang-crd's life circle, for example handle `update/create/delete` events. Second Reason, from a Scheduler perspective, 
 it's inconvenient to maintain receive-order-issue's between gang-crd and pod. According to practical experience, pod's annotation 
-is enough for declaring gang-scheduling-configuration.
+is enough for declaring gang-scheduling-configuration,so we build the gang's configuration according to the first pod which declared the gang.
 
 - `koordinater.io.gang/name`                gang name.
 - `koordinater.io.gang/bundleName`          equals to roleName.
@@ -156,17 +156,17 @@ roleA and roleB belongs to different gang group, the example as follows:
 ### Implementation Details
 #### QueueSortPlugin
 
-We design a independent plugin to implement the `QueueSort` extension point separately, so that we can integrate 
+We design an independent plugin to implement the `QueueSort` extension point separately, so that we can integrate 
 queue sort logic of all plugins, and register them at one time.
 
 In this proposal, we implement the Less function to gather pods belongs to same gang. The specific queuing rule is:
 
-1. First compare the priorities of the two pods, the higher priority is at the front of the queue.
+1. Firstly, compare the priorities of the two pods, the higher priority is at the front of the queue.
 
-2. Second compare create-time-stamp of two pods, if pod belongs to a gang, then we compare create-time-stamp of the gang, 
+2. Secondly, compare create-time-stamp of two pods, if pod belongs to a gang, then we compare create-time-stamp of the gang, 
 the one created first will be at the front of the queue.
 
-3. Third compare pod's namespace, if pod belongs to a gang, then we compare gang name. 
+3. Finally, compare pod's namespace, if pod belongs to a gang, then we compare gang name. 
 
 ```go
 type QueueSortPlugin interface{
@@ -179,10 +179,10 @@ type QueueSortPlugin interface{
 
 ###### strict-mode and non-strict-mode
 As mentioned above, in `strict-mode`, if a pod failed to be scheduled, the requests that have been successfully scheduled in 
-this round of gang scheduling cycle will be rolled back, and the remained pods waiting for scheduling will be reject in 
-pre-filter check util this scheduling cycle passed. We call this mode is `strict-mode`.
+this scheduling cycle will be rolled back, and the remaining pods waiting for scheduling will be rejected in 
+PreFilter check util this scheduling cycle passed. We call this mode is `strict-mode`.
 
-In `non-strict-mode`, if a pod failed to be scheduled, it's has no impact on any other pods. We will continue to accumulate 
+In `non-strict-mode`, if a pod failed to be scheduled, it has no impact on any other pod. We will continue to accumulate 
 the allocated pod until the condition of gang is met. This process is friendly to gangs with large number of pods, but it 
 will increase the risk of resource deadlock between gangs. For example, the quota of the quota group is 10(quota will be proposed later), 
 and the user submits three gangs with 5 pods. Due to various plugin constraints, gang1\2\3 may allocate resources of 3\3\4 respectively. 
@@ -191,12 +191,12 @@ In future proposal, we will try to fix this problem.
 
 ###### Gang
 
-We design the gang for record gang status in scheduler memory, it has the `Bundles` field to store the gang's children by bundle name.
+We design the gang to record gang status in scheduler memory, it has the `Bundles` field to store the gang's children by bundle name.
 We can also find BundleInfo from `PodToBundleMap` field according to the pod's NamespacedName. We can check the `ResourceSatisfied`
 field to see if the gang is already has the minimum number assumed pods in each bundle. 
 
-It should be noted that, if the resource accumulation conditions of gang are met, then some pods failed in the process of bind;
-Or some bound pods preempted\rescheduled, should the constraints of gang still be effective in the process of resource reallocation? 
+It should be noted that, if the resource accumulation conditions of gang are met, then some pods failed in the process of binding;
+Or some bound pods are preempted\rescheduled, should the constraints of gang still be effective in the process of resource reallocation? 
 Because the initial purpose of gang is to require pods to be pulled up at the same time, if some pods have been pulled up, 
 then the subsequent gang behavior is meaningless. Therefore, when `resourcequalified=true`, all subsequent resource allocations 
 are no longer constrained by gang rules, and their performance is similar to ordinary pod.
@@ -222,16 +222,16 @@ type Gang struct {
 We can get the children pods from "Children" field, and the `BoundChildren, WaitingForBindChildren` store the pods binding status,
 which is used to check if the pods can pass permit stage.
 
-We especially explain `scheduleCycle` and `childrenScheduleRoundMap` field. These fields control bundle's scheduling cycle. 
-at the beginning, `scheduleCycle` is 1, and each pod's cycle in `childrenScheduleRoundMap` is 0. When each pod comes to pre-filter, 
+We especially explain `scheduleCycle` and `childrenScheduleRoundMap` field. These fields control bundle's scheduling cycle. For example,
+at the beginning, `scheduleCycle` is 1, and each pod's cycle in `childrenScheduleRoundMap` is 0. When each pod comes to PreFilter, 
 we will check if the pod's value in `childrenScheduleRoundMap` is smaller than bundle's `scheduleCycle`, If result is positive, 
 we set the pod's cycle in `childrenScheduleRoundMap` equal with `scheduleCycle` and pass the check. If result is negative, means
 the pod has been scheduled in this cycle, so we should reject it. When the last pod comes to make all `childrenScheduleRoundMap`'s values
-equal to `scheduleCycle`, bundle's `scheduleCycle` added by 1, which means a new schedule cycle.
+equal to `scheduleCycle`, bundle's `scheduleCycle` will be added by 1, which means a new schedule cycle.
 
-We continue to explain `scheduleCycleValid` field, during the scheduling,  When a pod failed at Filter, we will set ScheduleCycleValid to 
-false in post-filter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true".
-the remaining pods should be rejected in pre-filter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
+We continue to explain `scheduleCycleValid` field, during the scheduling,  When a pod failed at Filter stage, we will set ScheduleCycleValid to 
+false in PostFilter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true".
+the remaining pods should be rejected in PreFilter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
 
 It should be emphasized that `scheduleCycle\scheduleCycleValid\childrenScheduleRoundMap` only work in `strict-mode`. 
 
@@ -262,9 +262,6 @@ type GangPlugin struct {
     gangCache                   map[string]*Gang
 }
 ```
-
-##### Gang Plugin
-
 during the whole kubernetes shceduling process,we only need to realize our logic into four extention points as below:
 ```go
 var(
@@ -298,7 +295,7 @@ if `non-strict-mode`, we only do step1 and step2:
 
 ###### **PostFilter**
 
-At this point means the pod didn't pass the filter plugin, we should:
+At this point means the pod didn't pass the Filter Plugin, we should:
 
 - If `strict-mode`, we will set `scheduleCycleValid` to false and release all assumed pods.
 
@@ -306,12 +303,12 @@ At this point means the pod didn't pass the filter plugin, we should:
 
 ###### **Permit**
 
-Any pod passes filter stage will come to this stage. Scheduler will calculate whether the current number of assumed-pods 
+Any pod passes Filter stage will come to this stage. Scheduler will calculate whether the current number of assumed-pods 
 in each bundle meets the bundle's minimum requirement.
 
 - If gang don't meet the bind-condition, we will give the pod a "Wait" Status with a timeout duration, and the bind 
 goroutine will keep waiting until the wait is timeout or passed. Then we will run the `ActiveGang` method, it can put all 
-the pods belongs to the gang which in `schedulableQueue` or `backoffQueue` back to `activeQueue`, so that the pod of gang 
+the pods belong to the gang which in `schedulableQueue` or `backoffQueue` back to `activeQueue`, so that the pod of gang 
 can be continuously scheduled as much as possible.
 
 - If gang meet the bind-condition, we will give every waiting pod a "Success" status, which will let the bind goroutine of
@@ -332,6 +329,7 @@ the failed pod resource.
 ###### **Init**
 
 We will register pod's event handler to watch pod event for updating gang and bundle.
+
 
 ## Unsolved Problems
 
