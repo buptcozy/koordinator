@@ -57,7 +57,7 @@ However, in practice we find that the above solutions do not meet the needs of t
 #### Coescheduling
 1.`coescheduling` implement a new queue-sort interface and other methods to let one gang's pods get out of the queue in order as much as possible.
 If a pod failed to be scheduled, the requests that have been successfully scheduled in this round of gang scheduling cycle will be rolled back,
-and the remained pods waiting for scheduling will be reject in pre-filter check util this scheduling cycle passed. 
+and the remaining pods waiting for scheduling will be rejected in pre-filter check util this scheduling cycle passed. 
 For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
 global time interval to control the gang scheduling cycle.
@@ -79,7 +79,7 @@ different from the community from the data structure to the process, which lead 
 ### Goals
 1.Definition API to announce gang-scheduling-configuration.
 
-3.Provides a scheduler plugin to achieve gang-scheduling ability.
+2.Provides a scheduler plugin to achieve gang-scheduling ability.
 
 ### Non Goals and Future Work
 1.Provide ability to solve gang-resource-deadlock problems with `non-strict-mode`.
@@ -89,7 +89,7 @@ different from the community from the data structure to the process, which lead 
 We advise users declaring gang-scheduling-configuration by pod's annotation. First Reason, high level operator has no need 
 to maintain gang-crd's life circle, for example handle `update/create/delete` events. Second Reason, from a Scheduler perspective, 
 it's inconvenient to maintain receive-order-issue's between gang-crd and pod. According to practical experience, pod's annotation 
-is enough for declaring gang-scheduling-configuration.
+is enough for declaring gang-scheduling-configuration,so we build the gang's information according to the first pod which declared the gang.
 
 - `koordinater.io.gang/name`                gang name.
 - `koordinater.io.gang/bundleName`          equals to roleName.
@@ -163,12 +163,12 @@ queue sort logic of all plugins, and register them at one time.
 
 In this proposal, we implement the Less function to gather pods belongs to same gang. The specific queuing rule is:
 
-1.First compare the priorities of the two pods, the higher priority is at the front of the queue.
+1.Firstly, compare the priorities of the two pods, the higher priority is at the front of the queue.
 
-2.Second compare create-time-stamp of two pods, if pod belongs to a gang, then we compare create-time-stamp of the gang, 
+2.Secondly, compare create-time-stamp of two pods, if pod belongs to a gang, then we compare create-time-stamp of the gang, 
 the one created first will be at the front of the queue.
 
-3.Third compare pod's namespace, if pod belongs to a gang, then we compare gang name. 
+3.Finally, compare pod's namespace, if pod belongs to a gang, then we compare gang name. 
 
 ```go
 type QueueSortPlugin interface{
@@ -181,7 +181,7 @@ type QueueSortPlugin interface{
 
 ###### strict-mode and non-strict-mode
 As mentioned above, in `strict-mode`, if a pod failed to be scheduled, the requests that have been successfully scheduled in 
-this round of gang scheduling cycle will be rolled back, and the remained pods waiting for scheduling will be reject in 
+this scheduling cycle will be rolled back, and the remaining pods waiting for scheduling will be reject in 
 pre-filter check util this scheduling cycle passed. We call this mode is `strict-mode`.
 
 In `non-strict-mode`, if a pod failed to be scheduled, it's has no impact on any other pods. We will continue to accumulate 
