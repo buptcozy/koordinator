@@ -156,7 +156,7 @@ roleA and roleB belongs to different gang group, the example as follows:
 ### Implementation Details
 #### QueueSortPlugin
 
-We design a independent plugin to implement the `QueueSort` extension point separately, so that we can integrate 
+We design an independent plugin to implement the `QueueSort` extension point separately, so that we can integrate 
 queue sort logic of all plugins, and register them at one time.
 
 In this proposal, we implement the Less function to gather pods belongs to same gang. The specific queuing rule is:
