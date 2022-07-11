@@ -61,12 +61,11 @@ and the remaining pods waiting for scheduling will be rejected in pre-filter che
 For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
 global time interval to control the gang scheduling cycle. The first defect is that the uniform time interval will cause 
-some problems.If the time configuration is too long, it will lead to useless 
-waiting; If the time configuration is too short, 
+some problems.If the time configuration is too long, it will lead to useless waiting; If the time configuration is too short, 
 it will lead to useless scheduling. Secondly, it is very difficult for a large job to meet all resource requests at one time. 
 This mechanism will lead to a very low probability of full resources, and eventually make the job starve to death. We call this process as `strict-mode`.
 
-2.Some jobs have complex gang requirements. For example, a job has several roles. Each role will have several pods 
+2. Some jobs have complex gang requirements. For example, a job has several roles. Each role will have several pods 
 and its own gang conditions. Jobs also need different roles to form different gang groups. All pods in a gang group can 
 trigger the bind process only after all roles in a gang group meet their gang conditions. The `coescheduling` can't meet
 this requirement.
@@ -285,11 +284,11 @@ type GangScheduling interface{
 
 if `non-strict-mode`, we only do step1 and step2:
 
-- Check whether the bundle has met the requirements of minNum under each bundle, and reject the pod if negative.
+- Check whether childrens in bundle has met the requirements of minimum number under each bundle, and reject the pod if negative.
 
 - Check whether the gang has been timeout(check the pod's annotation,later introduced at Permit section), and reject the pod if negative.
 
-- Check whether the bundle has met the `scheduleCycleValid` check, and reject the pod if negative.
+- Check whether the bundle has met the `scheduleCycleValid` check, and reject the pod if positive.
 
 - Try update `scheduleCycle`, `scheduleCycleValid`, `childrenScheduleRoundMap` as mentioned above.
 
