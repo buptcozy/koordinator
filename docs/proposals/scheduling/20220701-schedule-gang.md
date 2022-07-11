@@ -57,7 +57,7 @@ However, in practice we find that the above solutions do not meet the needs of t
 #### Coescheduling
 1. `coescheduling` implement a new queue-sort interface and other methods to let one gang's pods get out of the queue in order as much as possible.
 If a pod failed to be scheduled, the requests that have been successfully scheduled in this round of gang scheduling cycle will be rolled back,
-and the remaining pods waiting for scheduling will be rejected in pre-filter check util this scheduling cycle passed. 
+and the remaining pods waiting for scheduling will be rejected in PreFilter check util this scheduling cycle passed. 
 For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
 global time interval to control the gang scheduling cycle. The first defect is that the uniform time interval will cause 
@@ -180,7 +180,7 @@ type QueueSortPlugin interface{
 ###### strict-mode and non-strict-mode
 As mentioned above, in `strict-mode`, if a pod failed to be scheduled, the requests that have been successfully scheduled in 
 this scheduling cycle will be rolled back, and the remaining pods waiting for scheduling will be rejected in 
-pre-filter check util this scheduling cycle passed. We call this mode is `strict-mode`.
+PreFilter check util this scheduling cycle passed. We call this mode is `strict-mode`.
 
 In `non-strict-mode`, if a pod failed to be scheduled, it has no impact on any other pod. We will continue to accumulate 
 the allocated pod until the condition of gang is met. This process is friendly to gangs with large number of pods, but it 
@@ -223,7 +223,7 @@ We can get the children pods from "Children" field, and the `BoundChildren, Wait
 which is used to check if the pods can pass permit stage.
 
 We especially explain `scheduleCycle` and `childrenScheduleRoundMap` field. These fields control bundle's scheduling cycle. For example,
-at the beginning, `scheduleCycle` is 1, and each pod's cycle in `childrenScheduleRoundMap` is 0. When each pod comes to pre-filter, 
+at the beginning, `scheduleCycle` is 1, and each pod's cycle in `childrenScheduleRoundMap` is 0. When each pod comes to PreFilter, 
 we will check if the pod's value in `childrenScheduleRoundMap` is smaller than bundle's `scheduleCycle`, If result is positive, 
 we set the pod's cycle in `childrenScheduleRoundMap` equal with `scheduleCycle` and pass the check. If result is negative, means
 the pod has been scheduled in this cycle, so we should reject it. When the last pod comes to make all `childrenScheduleRoundMap`'s values
@@ -231,7 +231,7 @@ equal to `scheduleCycle`, bundle's `scheduleCycle` will be added by 1, which mea
 
 We continue to explain `scheduleCycleValid` field, during the scheduling,  When a pod failed at Filter stage, we will set ScheduleCycleValid to 
 false in Post-Filter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true".
-the remaining pods should be rejected in pre-filter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
+the remaining pods should be rejected in PreFilter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
 
 It should be emphasized that `scheduleCycle\scheduleCycleValid\childrenScheduleRoundMap` only work in `strict-mode`. 
 
