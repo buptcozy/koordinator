@@ -87,7 +87,7 @@ different from the community from the data structure to the process, which lead 
 We advise users declaring gang-scheduling-configuration by pod's annotation. First Reason, high level operator has no need 
 to maintain gang-crd's life circle, for example handle `update/create/delete` events. Second Reason, from a Scheduler perspective, 
 it's inconvenient to maintain receive-order-issue's between gang-crd and pod. According to practical experience, pod's annotation 
-is enough for declaring gang-scheduling-configuration,so we build the gang's information according to the first pod which declared the gang.
+is enough for declaring gang-scheduling-configuration,so we build the gang's configration according to the first pod which declared the gang.
 
 - `koordinater.io.gang/name`                gang name.
 - `koordinater.io.gang/bundleName`          equals to roleName.
