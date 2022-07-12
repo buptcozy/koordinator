@@ -49,7 +49,7 @@ control the resource-accumulation-process by a configuration. We also provide a 
 the real scenario, which is different from community.
 
 ## Motivation
-In AI scenarios, lots of jobs need gang scheduling. The community have lots of related implements such `coescheduling` or `vocalno`.
+In AI scenarios, lots of jobs need gang scheduling. The community have lots of related implements such as `coescheduling` or `vocalno`.
 However, in practice we find that the above solutions do not meet the needs of the business in some places.
 
 ### Compared with competitors
@@ -57,8 +57,8 @@ However, in practice we find that the above solutions do not meet the needs of t
 #### Coescheduling
 1. `coescheduling` implement a new queue-sort interface and other methods to let one gang's pods get out of the queue in order as much as possible.
 If a pod failed to be scheduled, the requests that have been successfully scheduled in this round of gang scheduling cycle will be rolled back,
-and the remaining pods waiting for scheduling will be rejected in PreFilter check util this scheduling cycle passed. 
-For example, there a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
+and the remaining pods waiting for scheduling will be rejected in PreFilter check until this scheduling cycle passed. 
+For example, there is a gang requires 10 tasks to be scheduled, if first 5 tasks allocated, the 6th task failed to be scheduled,
 `coescheduling` will roll-back first 5 tasks and ignore the remaining 4 tasks in this gang scheduling cycle. `coescheduling` simply use a 
 global time interval to control the gang scheduling cycle. The first defect is that the uniform time interval will cause 
 some problems. If the time configuration is too long, it will lead to useless waiting; If the time configuration is too short, 
@@ -71,7 +71,7 @@ trigger the bind process only after all roles in a gang group meet their gang co
 this requirement.
 
 #### Volcano
-volcano uses JobInfo as the basic unit for scheduling and is naturally friendly to gang. However, the scheduler is very 
+Volcano uses JobInfo as the basic unit for scheduling and is naturally friendly to gang. However, the scheduler is very 
 different from the community from the data structure to the process, which lead negative compatibility with the native k8s community.
 
 ### Goals
@@ -84,8 +84,8 @@ different from the community from the data structure to the process, which lead 
 
 ## Proposal
 ### API
-We advise users declaring gang-scheduling-configuration by pod's annotation. First Reason, high level operator has no need 
-to maintain gang-crd's life circle, for example handle `update/create/delete` events. Second Reason, from a Scheduler perspective, 
+We recommend users declaring gang-scheduling-configuration by pod's annotation. First Reason, high level operator has no need 
+to maintain gang-crd's life circle like handling `update/create/delete` events. Second Reason, from a Scheduler perspective, 
 it's inconvenient to maintain receive-order-issue's between gang-crd and pod. According to practical experience, pod's annotation 
 is enough for declaring gang-scheduling-configuration,so we build the gang's configuration according to the first pod which declared the gang.
 
@@ -159,7 +159,7 @@ roleA and roleB belongs to different gang group, the example as follows:
 We design an independent plugin to implement the `QueueSort` extension point separately, so that we can integrate 
 queue sort logic of all plugins, and register them at one time.
 
-In this proposal, we implement the Less function to gather pods belongs to same gang. The specific queuing rule is:
+In this proposal, we implement the Less function to gather pods belong to same gang. The specific queuing rule is:
 
 1. Firstly, compare the priorities of the two pods, the higher priority is at the front of the queue.
 
@@ -178,7 +178,7 @@ type QueueSortPlugin interface{
 ##### Data-Structure
 
 ###### strict-mode and non-strict-mode
-As mentioned above, in `strict-mode`, if a pod failed to be scheduled, the requests that have been successfully scheduled in 
+As mentioned above, in `strict-mode`, if a pod failed to be scheduled, the pods that have been successfully scheduled in 
 this scheduling cycle will be rolled back, and the remaining pods waiting for scheduling will be rejected in 
 PreFilter check util this scheduling cycle passed. We call this mode is `strict-mode`.
 
@@ -230,8 +230,8 @@ the pod has been scheduled in this cycle, so we should reject it. When the last 
 equal to `scheduleCycle`, bundle's `scheduleCycle` will be added by 1, which means a new schedule cycle.
 
 We continue to explain `scheduleCycleValid` field, during the scheduling,  When a pod failed at Filter stage, we will set ScheduleCycleValid to 
-false in PostFilter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true".
-the remaining pods should be rejected in PreFilter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
+false in PostFilter stage, which means any pod in this bundle shouldn't be scheduled until it is set to "true"，
+and the remaining pods should be rejected in PreFilter stage. Only When `scheduleCycle` added by 1, we will reset the `scheduleCycleValid` to true.
 
 It should be emphasized that `scheduleCycle\scheduleCycleValid\childrenScheduleRoundMap` only work in `strict-mode`. 
 
