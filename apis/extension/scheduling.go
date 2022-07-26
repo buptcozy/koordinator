@@ -59,6 +59,30 @@ const (
 	Wait                Status = "Wait"
 )
 
+type Status string
+
+//Gang scheduling consts
+const (
+	DefaultGangWaitTime = 2 * time.Minute
+
+	StrictMode    = "StrictMode"
+	NonStrictMode = "NonStrictMode"
+
+	// Gang's Annotation
+	GangNameAnnotation     = "gang.scheduling.koordinator.sh/name"
+	GangMinNumAnnotation   = "gang.scheduling.koordinator.sh/min-available"
+	GangWaitTimeAnnotation = "gang.scheduling.koordinator.sh/waiting-time"
+	GangTotalNumAnnotation = "gang.scheduling.koordinator.sh/total-number"
+	GangModeAnnotation     = "gang.scheduling.koordinator.sh/gang-mode"
+	GangGroupsAnnotation   = "gang.scheduling.koordinator.sh/groups"
+	GangTimeOutAnnotation  = "gang.scheduling.koordinator.sh/timeout"
+
+	//Permit internal status
+	GangNotFoundInCache Status = "Gang not found in cache"
+	Success             Status = "Success"
+	Wait                Status = "Wait"
+)
+
 // CustomUsageThresholds supports user-defined node resource utilization thresholds.
 type CustomUsageThresholds struct {
 	UsageThresholds map[corev1.ResourceName]int64 `json:"usageThresholds,omitempty"`
