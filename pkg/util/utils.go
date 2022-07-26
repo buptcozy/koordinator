@@ -19,7 +19,10 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/koordinator-sh/koordinator/apis/extension"
 	"io/ioutil"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -141,4 +144,41 @@ func MaxInt64(i, j int64) int64 {
 		return i
 	}
 	return j
+}
+
+// GetNamespacedName returns the namespaced name.
+func GetNamespacedName(obj metav1.Object) string {
+	return fmt.Sprintf("%v/%v", obj.GetNamespace(), obj.GetName())
+}
+
+// GetSubPriority
+//Get pod's sub-priority in Koordinator from label
+func GetSubPriority(pod *corev1.Pod) (int32, error) {
+	if pod.Labels != nil {
+		priority, err := strconv.ParseInt(pod.Labels[extension.LabelPodPriority], 0, 32)
+		if err != nil {
+			return 0, err
+		}
+		return int32(priority), nil
+	}
+	// When pod isn't set with the KoordinatorPriority label,
+	//We assume that the sub-priority of the pod is default 0
+	return 0, nil
+}
+
+// StringToGangGroupSlice
+//Parse gang group's annotation like :"[gangA,gangB]"  => goLang slice : []string{"gangA"."gangB"}
+//todo:need to be more graceful
+func StringToGangGroupSlice(s string) ([]string, error) {
+	defaultSlice := make([]string, 0)
+	if s == "" {
+		return defaultSlice, nil
+	}
+	length := len(s)
+	//should start with '[' ,end with ']'
+	if s[0] != '[' && s[length-1] != ']' {
+		return defaultSlice, fmt.Errorf("gangGroup info illegal")
+	}
+	s = s[1 : length-1]
+	return strings.Split(s, ","), nil
 }
