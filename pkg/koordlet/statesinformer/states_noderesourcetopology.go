@@ -19,17 +19,25 @@ package statesinformer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 
 	"github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
+	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
+	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/configfiles"
+	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
 	"github.com/koordinator-sh/koordinator/apis/extension"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
+	"github.com/koordinator-sh/koordinator/pkg/util/system"
 )
 
 func (s *statesInformer) syncNodeResourceTopology(node *corev1.Node) {
@@ -66,7 +74,7 @@ func (s *statesInformer) syncNodeResourceTopology(node *corev1.Node) {
 		TopologyPolicies: []string{string(v1alpha1.None)},
 		Zones:            v1alpha1.ZoneList{v1alpha1.Zone{Name: "fake-name", Type: "fake-type"}},
 	}
-	//TODO: add retry if create fail
+	// TODO: add retry if create fail
 	_, err = s.topologyClient.TopologyV1alpha1().NodeResourceTopologies().Create(ctx, topology, metav1.CreateOptions{})
 	if err != nil {
 		klog.Errorf("failed to create NodeResourceTopology %s, err: %v", topologyName, err)
@@ -74,27 +82,150 @@ func (s *statesInformer) syncNodeResourceTopology(node *corev1.Node) {
 	}
 }
 
+func (s *statesInformer) calGuaranteedCpu(usedCPUs map[int32]*extension.CPUInfo, stateJson string) ([]extension.PodCPUAlloc, error) {
+	if stateJson == "" {
+		return nil, fmt.Errorf("empty state file")
+	}
+	checkPoint := &state.CPUManagerCheckpoint{}
+	err := json.Unmarshal([]byte(stateJson), checkPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	pods := make(map[types.UID]*PodMeta)
+	managedPods := make(map[types.UID]struct{})
+	for _, podMeta := range s.GetAllPods() {
+		pods[podMeta.Pod.UID] = podMeta
+		qosClass := extension.GetPodQoSClass(podMeta.Pod)
+		if qosClass == extension.QoSLS || qosClass == extension.QoSBE {
+			managedPods[podMeta.Pod.UID] = struct{}{}
+			continue
+		}
+		resourceStatus, err := extension.GetResourceStatus(podMeta.Pod.Annotations)
+		if err == nil {
+			set, err := cpuset.Parse(resourceStatus.CPUSet)
+			if err == nil && set.Size() > 0 {
+				managedPods[podMeta.Pod.UID] = struct{}{}
+			}
+		}
+	}
+
+	var podAllocs []extension.PodCPUAlloc
+	for podUID := range checkPoint.Entries {
+		if _, ok := managedPods[types.UID(podUID)]; ok {
+			continue
+		}
+		cpuSet := cpuset.NewCPUSet()
+		for container, cpuString := range checkPoint.Entries[podUID] {
+			if containerCPUSet, err := cpuset.Parse(cpuString); err != nil {
+				klog.Errorf("could not parse cpuset %q for container %q in pod %q: %v", cpuString, container, podUID, err)
+				continue
+			} else if containerCPUSet.Size() > 0 {
+				cpuSet = cpuSet.Union(containerCPUSet)
+			}
+		}
+		if cpuSet.IsEmpty() {
+			continue
+		}
+
+		// TODO: It is possible that the data in the checkpoint file is invalid
+		//  and should be checked with the data in the cgroup to determine whether it is consistent
+		podCPUAlloc := extension.PodCPUAlloc{
+			UID:              types.UID(podUID),
+			CPUSet:           cpuSet.String(),
+			ManagedByKubelet: true,
+		}
+		podMeta := pods[types.UID(podUID)]
+		if podMeta != nil {
+			podCPUAlloc.Namespace = podMeta.Pod.Namespace
+			podCPUAlloc.Name = podMeta.Pod.Name
+		}
+		podAllocs = append(podAllocs, podCPUAlloc)
+
+		for _, cpuID := range cpuSet.ToSliceNoSort() {
+			delete(usedCPUs, int32(cpuID))
+		}
+	}
+	return podAllocs, nil
+}
+
 func (s *statesInformer) reportNodeTopology() {
+	klog.Info("start to report node topology")
 	s.nodeRWMutex.RLock()
 	nodeName := s.node.Name
 	s.nodeRWMutex.RUnlock()
 	ctx := context.TODO()
-
 	cpuTopology, usedCPUs, err := s.calCpuTopology()
 	if err != nil {
 		return
 	}
+
+	// default policy is none
+	cpuManagerPolicy := extension.KubeletCPUManagerPolicy{
+		Policy: "none",
+	}
+
+	filePath, err := system.GuessConfigFilePathFromKubelet()
+	if err != nil {
+		klog.Error("failed to read config file path from kubelet args")
+	}
+	if filePath != "" {
+		kubeletConfig, err := loadConfigFile(filePath)
+		if err != nil {
+			klog.Errorf("failed to load kubelet config, err: %v", err)
+		} else {
+			if len(kubeletConfig.CPUManagerPolicyOptions) != 0 {
+				cpuManagerPolicy.Options = kubeletConfig.CPUManagerPolicyOptions
+			}
+			if kubeletConfig.CPUManagerPolicy != "" {
+				cpuManagerPolicy.Policy = kubeletConfig.CPUManagerPolicy
+			}
+		}
+	}
+
+	cpuPolicy, stateFilePath, cpuManagerOpt, err := system.GuessCPUManagerOptFromKubelet()
+	if err != nil {
+		klog.Errorf("failed to guess kubelet cpu manager opt, err: %v", err)
+	}
+	// use args first
+	if cpuPolicy != "" {
+		cpuManagerPolicy.Policy = cpuPolicy
+	}
+	if len(cpuManagerOpt) != 0 {
+		cpuManagerPolicy.Options = cpuManagerOpt
+	}
+
+	cpuManagerPolicyJson, err := json.Marshal(cpuManagerPolicy)
+	if err != nil {
+		klog.Errorf("failed to marshal cpu manager policy, err: %v", err)
+	}
+	var podAllocsJson []byte
+	if stateFilePath != "" {
+		data, err := os.ReadFile(stateFilePath)
+		if err != nil {
+			klog.Errorf("failed to read file, err: %v", err)
+		}
+		podAllocs, err := s.calGuaranteedCpu(usedCPUs, string(data))
+		if err != nil {
+			klog.Errorf("failed to cal GuaranteedCpu, err: %v", err)
+		}
+		if len(podAllocs) != 0 {
+			podAllocsJson, err = json.Marshal(podAllocs)
+			if err != nil {
+				klog.Errorf("failed to marshal pod allocs, err: %v", err)
+			}
+		}
+	}
+	// TODO: report lse/lsr pod from cgroup
 	sharePools := s.calCPUSharePools(usedCPUs)
 
 	cpuTopologyJson, err := json.Marshal(cpuTopology)
 	if err != nil {
 		klog.Errorf("failed to marshal cpu topology of node %s, err: %v", nodeName, err)
-		return
 	}
 	cpuSharePoolsJson, err := json.Marshal(sharePools)
 	if err != nil {
 		klog.Errorf("failed to marshal cpushare pools of node %s, err: %v", nodeName, err)
-		return
 	}
 
 	err = retry.OnError(retry.DefaultBackoff, errors.IsTooManyRequests, func() error {
@@ -106,11 +237,14 @@ func (s *statesInformer) reportNodeTopology() {
 		if topology.Annotations == nil {
 			topology.Annotations = make(map[string]string)
 		}
-		if topology.Annotations[extension.AnnotationNodeCPUTopology] == string(cpuTopologyJson) && topology.Annotations[extension.AnnotationNodeCPUSharedPools] == string(cpuSharePoolsJson) {
-			return nil
-		}
+		// TODO only update if necessary
+		s.updateNodeTopo(topology)
 		topology.Annotations[extension.AnnotationNodeCPUTopology] = string(cpuTopologyJson)
 		topology.Annotations[extension.AnnotationNodeCPUSharedPools] = string(cpuSharePoolsJson)
+		topology.Annotations[extension.AnnotationKubeletCPUManagerPolicy] = string(cpuManagerPolicyJson)
+		if len(podAllocsJson) != 0 {
+			topology.Annotations[extension.AnnotationNodeCPUAllocs] = string(podAllocsJson)
+		}
 		_, err = s.topologyClient.TopologyV1alpha1().NodeResourceTopologies().Update(context.TODO(), topology, metav1.UpdateOptions{})
 		if err != nil {
 			klog.Errorf("failed to update cpu info of node %s, err: %v", nodeName, err)
@@ -188,4 +322,35 @@ func (s *statesInformer) calCpuTopology() (*extension.CPUTopology, map[int32]*ex
 		usedCPUs[cpu.CPUID] = &info
 	}
 	return cpuTopology, usedCPUs, nil
+}
+
+func (s *statesInformer) updateNodeTopo(newTopo *v1alpha1.NodeResourceTopology) {
+	s.setNodeTopo(newTopo)
+	klog.V(5).Infof("local node topology info updated %v", newTopo)
+	s.sendCallbacks(RegisterTypeNodeTopology)
+}
+
+func (s *statesInformer) setNodeTopo(newTopo *v1alpha1.NodeResourceTopology) {
+	s.nodeTopoMutex.Lock()
+	defer s.nodeTopoMutex.Unlock()
+	s.nodeTopology = newTopo
+}
+
+func (s *statesInformer) getNodeTopo() *v1alpha1.NodeResourceTopology {
+	s.nodeTopoMutex.RLock()
+	defer s.nodeTopoMutex.RUnlock()
+	return s.nodeTopology.DeepCopy()
+}
+
+func loadConfigFile(kubeletConfigFile string) (*kubeletconfig.KubeletConfiguration, error) {
+	const errFmt = "failed to load Kubelet config file %s, error %v"
+	loader, err := configfiles.NewFsLoader(&utilfs.DefaultFs{}, kubeletConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf(errFmt, kubeletConfigFile, err)
+	}
+	kc, err := loader.Load()
+	if err != nil {
+		return nil, fmt.Errorf(errFmt, kubeletConfigFile, err)
+	}
+	return kc, err
 }

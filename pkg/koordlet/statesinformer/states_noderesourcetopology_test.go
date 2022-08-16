@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/koordinator-sh/koordinator/apis/extension"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
@@ -52,6 +53,177 @@ func Test_syncNodeResourceTopology(t *testing.T) {
 	assert.Equal(t, nil, err)
 	assert.Equal(t, topologyName, topology.Name)
 	assert.Equal(t, "Koordinator", topology.Labels[extension.LabelManagedBy])
+}
+
+func Test_calGuaranteedCpu(t *testing.T) {
+	testCases := []struct {
+		name              string
+		podMap            map[string]*PodMeta
+		checkpointContent string
+		expectedError     bool
+		expectedPodAllocs []extension.PodCPUAlloc
+	}{
+		{
+			name:              "Restore non-existing checkpoint",
+			checkpointContent: "",
+			expectedError:     true,
+			expectedPodAllocs: nil,
+		},
+		{
+			name: "Restore empty entry",
+			checkpointContent: `{
+				"policyName": "none",
+				"defaultCPUSet": "4-6",
+				"entries": {},
+				"checksum": 354655845
+			}`,
+			expectedError:     false,
+			expectedPodAllocs: nil,
+		},
+		{
+			name:              "Restore checkpoint with invalid JSON",
+			checkpointContent: `{`,
+			expectedError:     true,
+			expectedPodAllocs: nil,
+		},
+		{
+			name: "Restore checkpoint with normal assignment entry",
+			checkpointContent: `{
+				"policyName": "none",
+				"defaultCPUSet": "1-3",
+				"entries": {
+					"pod": {
+						"container1": "1-2",
+						"container2": "2-3"
+					}
+				},
+				"checksum": 962272150
+			}`,
+			expectedError: false,
+			expectedPodAllocs: []extension.PodCPUAlloc{
+				{
+					UID:              "pod",
+					CPUSet:           "1-3",
+					ManagedByKubelet: true,
+				},
+			},
+		},
+		{
+			name: "Filter Managed Pods",
+			checkpointContent: `
+				{
+				    "policyName": "none",
+				    "defaultCPUSet": "1-8",
+				    "entries": {
+				        "pod": {
+				            "container1": "1-2",
+				            "container2": "2-3"
+				        },
+				        "LSPod": {
+				            "container1": "3-4"   
+				        },
+				        "BEPod": {
+				            "container1": "4-5"   
+				        },
+				        "LSRPod": {
+				            "container1": "5-6"   
+				        },
+				        "LSEPod": {
+				            "container1": "6-7"   
+				        }
+				    },
+				    "checksum": 962272150
+				}`,
+			podMap: map[string]*PodMeta{
+				"pod": {
+					Pod: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "test-pod",
+							UID:       types.UID("pod"),
+						},
+					},
+				},
+				"LSPod": {
+					Pod: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "test-ls-pod",
+							UID:       types.UID("LSPod"),
+							Labels: map[string]string{
+								extension.LabelPodQoS: string(extension.QoSLS),
+							},
+							Annotations: map[string]string{
+								extension.AnnotationResourceStatus: `{"cpuset": "3-4"}`,
+							},
+						},
+					},
+				},
+				"BEPod": {
+					Pod: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "test-be-pod",
+							UID:       types.UID("BEPod"),
+							Labels: map[string]string{
+								extension.LabelPodQoS: string(extension.QoSBE),
+							},
+						},
+					},
+				},
+				"LSRPod": {
+					Pod: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "test-lsr-pod",
+							UID:       types.UID("LSRPod"),
+							Labels: map[string]string{
+								extension.LabelPodQoS: string(extension.QoSLSR),
+							},
+							Annotations: map[string]string{
+								extension.AnnotationResourceStatus: `{"cpuset": "4-5"}`,
+							},
+						},
+					},
+				},
+				"LSEPod": {
+					Pod: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "test-lse-pod",
+							UID:       types.UID("LSEPod"),
+							Labels: map[string]string{
+								extension.LabelPodQoS: string(extension.QoSLSE),
+							},
+							Annotations: map[string]string{
+								extension.AnnotationResourceStatus: `{"cpuset": "5-6"}`,
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			expectedPodAllocs: []extension.PodCPUAlloc{
+				{
+					Namespace:        "default",
+					Name:             "test-pod",
+					UID:              "pod",
+					CPUSet:           "1-3",
+					ManagedByKubelet: true,
+				},
+			},
+		},
+	}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &statesInformer{
+				podMap: tt.podMap,
+			}
+			podAllocs, err := s.calGuaranteedCpu(map[int32]*extension.CPUInfo{}, tt.checkpointContent)
+			assert.Equal(t, tt.expectedError, err != nil)
+			assert.Equal(t, tt.expectedPodAllocs, podAllocs)
+		})
+	}
 }
 
 func Test_reportNodeTopology(t *testing.T) {

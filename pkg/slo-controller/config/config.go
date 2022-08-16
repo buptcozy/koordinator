@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"flag"
 	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +28,17 @@ import (
 	slov1alpha1 "github.com/koordinator-sh/koordinator/apis/slo/v1alpha1"
 	"github.com/koordinator-sh/koordinator/pkg/util"
 )
+
+var (
+	// SLO configmap name
+	ConfigNameSpace  = "koordinator-system"
+	SLOCtrlConfigMap = "slo-controller-config"
+)
+
+func InitFlags(fs *flag.FlagSet) {
+	fs.StringVar(&SLOCtrlConfigMap, "slo-config-name", SLOCtrlConfigMap, "determines the name the slo-controller configmap uses.")
+	fs.StringVar(&ConfigNameSpace, "config-namespace", ConfigNameSpace, "determines the namespace of configmap uses.")
+}
 
 //TODO move under apis in the next PR
 // +k8s:deepcopy-gen=true
@@ -68,16 +80,16 @@ type CPUBurstCfg struct {
 }
 
 // +k8s:deepcopy-gen=true
-type ResourceQoSCfg struct {
-	ClusterStrategy *slov1alpha1.ResourceQoSStrategy `json:"clusterStrategy,omitempty"`
-	NodeStrategies  []NodeResourceQoSStrategy        `json:"nodeStrategies,omitempty"`
+type ResourceQOSCfg struct {
+	ClusterStrategy *slov1alpha1.ResourceQOSStrategy `json:"clusterStrategy,omitempty"`
+	NodeStrategies  []NodeResourceQOSStrategy        `json:"nodeStrategies,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
-type NodeResourceQoSStrategy struct {
+type NodeResourceQOSStrategy struct {
 	// an empty label selector matches all objects while a nil label selector matches no objects
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
-	*slov1alpha1.ResourceQoSStrategy
+	*slov1alpha1.ResourceQOSStrategy
 }
 
 // +k8s:deepcopy-gen=true
