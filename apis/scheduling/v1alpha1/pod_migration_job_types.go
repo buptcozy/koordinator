@@ -145,8 +145,8 @@ const (
 	PodMigrationJobPending PodMigrationJobPhase = "Pending"
 	// PodMigrationJobRunning represents the PodMigrationJob is being processed
 	PodMigrationJobRunning PodMigrationJobPhase = "Running"
-	// PodMigrationJobSucceed represents the PodMigrationJob processed successfully
-	PodMigrationJobSucceed PodMigrationJobPhase = "Succeed"
+	// PodMigrationJobSucceeded represents the PodMigrationJob processed successfully
+	PodMigrationJobSucceeded PodMigrationJobPhase = "Succeeded"
 	// PodMigrationJobFailed represents the PodMigrationJob process failed caused by Timeout, Reservation failed, etc.
 	PodMigrationJobFailed PodMigrationJobPhase = "Failed"
 	// PodMigrationJobAborted represents the user forcefully aborted the PodMigrationJob.
@@ -170,7 +170,9 @@ const (
 const (
 	PodMigrationJobReasonTimeout                   = "Timeout"
 	PodMigrationJobReasonFailedCreateReservation   = "FailedCreateReservation"
+	PodMigrationJobReasonReservationExpired        = "ReservationExpired"
 	PodMigrationJobReasonUnschedulable             = "Unschedulable"
+	PodMigrationJobReasonForbiddenMigratePod       = "ForbiddenMigratePod"
 	PodMigrationJobReasonMissingPod                = "MissingPod"
 	PodMigrationJobReasonMissingReservation        = "MissingReservation"
 	PodMigrationJobReasonPreempting                = "Preempting"
@@ -194,7 +196,7 @@ const (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:nonNamespaced
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=pmj
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The phase of PodMigrationJob"

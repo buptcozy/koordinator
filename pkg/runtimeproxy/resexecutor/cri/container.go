@@ -40,13 +40,13 @@ func NewContainerResourceExecutor() *ContainerResourceExecutor {
 func (c *ContainerResourceExecutor) String() string {
 	return fmt.Sprintf("pod(%v/%v)container(%v)",
 		c.GetPodMeta().GetName(), c.GetPodMeta().GetUid(),
-		c.GetContainerMata().GetName())
+		c.GetContainerMeta().GetName())
 }
 
 func (c *ContainerResourceExecutor) GetMetaInfo() string {
 	return fmt.Sprintf("pod(%v/%v)container(%v)",
 		c.GetPodMeta().GetName(), c.GetPodMeta().GetUid(),
-		c.GetContainerMata().GetName())
+		c.GetContainerMeta().GetName())
 }
 
 func (c *ContainerResourceExecutor) GenerateHookRequest() interface{} {
@@ -78,13 +78,14 @@ func (c *ContainerResourceExecutor) ParseRequest(req interface{}) error {
 				PodResources:   podCheckPoint.Resources,
 				PodAnnotations: podCheckPoint.Annotations,
 				PodLabels:      podCheckPoint.Labels,
-				ContainerMata: &v1alpha1.ContainerMetadata{
+				ContainerMeta: &v1alpha1.ContainerMetadata{
 					Name:    request.GetConfig().GetMetadata().GetName(),
 					Attempt: request.GetConfig().GetMetadata().GetAttempt(),
 				},
 				ContainerAnnotations: request.GetConfig().GetAnnotations(),
 				ContainerResources:   transferToKoordResources(request.GetConfig().GetLinux().GetResources()),
 				PodCgroupParent:      request.GetSandboxConfig().GetLinux().GetCgroupParent(),
+				ContainerEnvs:        transferToKoordContainerEnvs(request.GetConfig().GetEnvs()),
 			},
 		}
 		klog.Infof("success parse container info %v during container create", c)
@@ -114,7 +115,7 @@ func (c *ContainerResourceExecutor) ParseContainer(container *runtimeapi.Contain
 	c.ContainerInfo = store.ContainerInfo{
 		ContainerResourceHookRequest: &v1alpha1.ContainerResourceHookRequest{
 			ContainerAnnotations: container.GetAnnotations(),
-			ContainerMata: &v1alpha1.ContainerMetadata{
+			ContainerMeta: &v1alpha1.ContainerMetadata{
 				Name:    container.GetMetadata().GetName(),
 				Attempt: container.GetMetadata().GetAttempt(),
 			},
@@ -122,7 +123,8 @@ func (c *ContainerResourceExecutor) ParseContainer(container *runtimeapi.Contain
 			PodAnnotations:  podInfo.GetAnnotations(),
 			PodLabels:       podInfo.GetLabels(),
 			PodCgroupParent: podInfo.GetCgroupParent(),
-			// TODO: How to get resource when failOver
+			// envs info would be loss during failover.
+			// TODO: How to get resource and envs when failOver
 		},
 	}
 	return nil
@@ -132,7 +134,7 @@ func (c *ContainerResourceExecutor) ResourceCheckPoint(rsp interface{}) error {
 	// container level resource checkpoint would be triggered during post container create only
 	switch response := rsp.(type) {
 	case *runtimeapi.CreateContainerResponse:
-		c.ContainerMata.Id = response.GetContainerId()
+		c.ContainerMeta.Id = response.GetContainerId()
 		err := store.WriteContainerInfo(response.GetContainerId(), &c.ContainerInfo)
 		if err != nil {
 			return err
@@ -166,6 +168,10 @@ func (c *ContainerResourceExecutor) UpdateRequest(rsp interface{}, req interface
 	if response.PodCgroupParent != "" {
 		c.PodCgroupParent = response.PodCgroupParent
 	}
+	if response.GetContainerEnvs() != nil {
+		c.ContainerEnvs = response.GetContainerEnvs()
+	}
+
 	// update CRI request
 	switch request := req.(type) {
 	case *runtimeapi.CreateContainerRequest:
@@ -178,6 +184,7 @@ func (c *ContainerResourceExecutor) UpdateRequest(rsp interface{}, req interface
 		if c.PodCgroupParent != "" {
 			request.SandboxConfig.Linux.CgroupParent = c.PodCgroupParent
 		}
+		request.Config.Envs = transferToCRIContainerEnvs(c.ContainerEnvs)
 	case *runtimeapi.UpdateContainerResourcesRequest:
 		if c.ContainerAnnotations != nil {
 			request.Annotations = c.ContainerAnnotations

@@ -17,7 +17,6 @@ limitations under the License.
 package system
 
 import (
-	"io/ioutil"
 	"os"
 	"path"
 	"testing"
@@ -48,6 +47,10 @@ func NewFileTestUtil(t *testing.T) *FileTestUtil {
 	return &FileTestUtil{TempDir: tempDir, t: t}
 }
 
+func (c *FileTestUtil) Cleanup() {
+	os.RemoveAll(c.TempDir)
+}
+
 func (c *FileTestUtil) MkDirAll(dirRelativePath string) {
 	dir := path.Join(c.TempDir, dirRelativePath)
 	if err := os.MkdirAll(dir, 0777); err != nil {
@@ -68,7 +71,7 @@ func (c *FileTestUtil) CreateFile(fileRelativePath string) {
 
 func (c *FileTestUtil) WriteFileContents(fileRelativePath, contents string) {
 	filePath := path.Join(c.TempDir, fileRelativePath)
-	err := ioutil.WriteFile(filePath, []byte(contents), 0644)
+	err := os.WriteFile(filePath, []byte(contents), 0644)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -76,7 +79,7 @@ func (c *FileTestUtil) WriteFileContents(fileRelativePath, contents string) {
 
 func (c *FileTestUtil) ReadFileContents(fileRelativePath string) string {
 	filePath := path.Join(c.TempDir, fileRelativePath)
-	contents, err := ioutil.ReadFile(filePath)
+	contents, err := os.ReadFile(filePath)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -99,7 +102,7 @@ func (c *FileTestUtil) WriteProcSubFileContents(relativeFilePath string, content
 	if !FileExists(file) {
 		c.CreateProcSubFile(file)
 	}
-	err := ioutil.WriteFile(file, []byte(contents), 0644)
+	err := os.WriteFile(file, []byte(contents), 0644)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -107,7 +110,7 @@ func (c *FileTestUtil) WriteProcSubFileContents(relativeFilePath string, content
 
 func (c *FileTestUtil) ReadProcSubFileContents(relativeFilePath string) string {
 	file := path.Join(Conf.ProcRootDir, relativeFilePath)
-	contents, err := ioutil.ReadFile(file)
+	contents, err := os.ReadFile(file)
 	if err != nil {
 		c.t.Fatal(err)
 	}

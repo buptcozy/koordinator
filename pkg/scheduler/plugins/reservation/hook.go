@@ -35,7 +35,7 @@ import (
 // for internal interface testing
 type parallelizeUntilFunc func(ctx context.Context, pieces int, doWorkPiece workqueue.DoWorkPieceFunc)
 
-func defaultParallelizeUntil(handle frameworkext.ExtendedHandle) parallelizeUntilFunc {
+func defaultParallelizeUntil(handle framework.Handle) parallelizeUntilFunc {
 	return handle.Parallelizer().Until
 }
 
@@ -45,7 +45,7 @@ var (
 )
 
 type Hook struct {
-	parallelizeUntil func(handle frameworkext.ExtendedHandle) parallelizeUntilFunc
+	parallelizeUntil func(handle framework.Handle) parallelizeUntilFunc
 }
 
 func NewHook() *Hook {
@@ -63,7 +63,7 @@ func (h *Hook) PreFilterHook(handle frameworkext.ExtendedHandle, cycleState *fra
 	}
 
 	// skip if the pod is a reserve pod
-	if IsReservePod(pod) {
+	if util.IsReservePod(pod) {
 		return nil, false
 	}
 
@@ -97,7 +97,7 @@ func (h *Hook) FilterHook(handle frameworkext.ExtendedHandle, cycleState *framew
 	}
 
 	// do not hook if not reserve state (where we should check if pod match any reservation on node)
-	if IsReservePod(pod) {
+	if util.IsReservePod(pod) {
 		return nil, nil, false
 	}
 	// abort the hook if node is not found
@@ -160,7 +160,7 @@ func (h *Hook) prepareMatchReservationState(handle frameworkext.ExtendedHandle, 
 				continue
 			}
 			// only count available reservations, ignore succeeded ones
-			if !IsReservationAvailable(r) {
+			if !util.IsReservationAvailable(r) {
 				continue
 			}
 			if matchReservation(pod, newReservationInfo(r)) {
@@ -200,7 +200,7 @@ func preparePreFilterNodeInfo(nodeInfo *framework.NodeInfo, pod *corev1.Pod, mat
 		if existingPod == nil {
 			continue
 		}
-		if matchedCache.Get(GetReservePodKey(existingPod)) != nil {
+		if matchedCache.Get(util.GetReservePodKey(existingPod)) != nil {
 			// clean affinity terms for matched reservations
 			newPodInfo := podInfo.DeepCopy()
 			newPodInfo.RequiredAntiAffinityTerms = nil

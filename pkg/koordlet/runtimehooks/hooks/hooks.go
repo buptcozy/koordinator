@@ -94,3 +94,16 @@ func init() {
 		rmconfig.PreUpdateContainerResources: make([]*Hook, 0),
 	}
 }
+
+func GetStages(disable map[string]struct{}) []rmconfig.RuntimeHookType {
+	var stages []rmconfig.RuntimeHookType
+	for stage, hooks := range globalStageHooks {
+		if _, ok := disable[string(stage)]; ok {
+			continue
+		}
+		if len(hooks) > 0 {
+			stages = append(stages, stage)
+		}
+	}
+	return stages
+}

@@ -46,20 +46,20 @@ func (p *Plugin) gcReservations() {
 	for _, r := range rList {
 		// expire reservations
 		// the reserve pods of expired reservations would be dequeue or removed from cache by the scheduler handler.
-		if r.Status.Phase != schedulingv1alpha1.ReservationFailed && isReservationNeedExpiration(r) {
+		if isReservationNeedExpiration(r) {
 			// marked as expired in cache even if the reservation is failed to set expired
 			if err = p.expireReservation(r); err != nil {
 				klog.Warningf("failed to update reservation %s as expired, err: %s", klog.KObj(r), err)
 			}
-		} else if IsReservationActive(r) {
+		} else if util.IsReservationActive(r) {
 			// sync active reservation for correct owner statuses
 			p.syncActiveReservation(r)
-		} else if IsReservationExpired(r) {
-			p.reservationCache.AddToFailed(r)
+		} else if util.IsReservationExpired(r) || util.IsReservationSucceeded(r) {
+			p.reservationCache.AddToInactive(r)
 		}
 	}
 
-	expiredMap := p.reservationCache.GetAllFailed()
+	expiredMap := p.reservationCache.GetAllInactive()
 	// TBD: cleanup orphan reservations
 	for _, r := range expiredMap {
 		// cleanup expired reservations
@@ -103,9 +103,9 @@ func (p *Plugin) expireReservationOnNode(node *corev1.Node) {
 
 func (p *Plugin) expireReservation(r *schedulingv1alpha1.Reservation) error {
 	// marked as expired in cache even if the reservation is failed to set expired
-	p.reservationCache.AddToFailed(r)
+	p.reservationCache.AddToInactive(r)
 	// update reservation status
-	return retryOnConflictOrTooManyRequests(func() error {
+	return util.RetryOnConflictOrTooManyRequests(func() error {
 		curR, err := p.rLister.Get(r.Name)
 		if errors.IsNotFound(err) {
 			klog.V(4).InfoS("reservation not found, abort the update",
@@ -172,18 +172,18 @@ func (p *Plugin) syncPodDeleted(pod *corev1.Pod) {
 
 	// pod has allocated reservation, should remove allocation info in the reservation
 	cached := rInfo.GetReservation()
-	err := retryOnConflictOrTooManyRequests(func() error {
+	err := util.RetryOnConflictOrTooManyRequests(func() error {
 		r, err1 := p.rLister.Get(cached.Name)
 		if errors.IsNotFound(err1) {
 			klog.V(5).InfoS("skip sync for reservation not found", "reservation", klog.KObj(r))
 			return nil
 		} else if err1 != nil {
-			klog.V(4).InfoS("failed to get reservation", "reservation", klog.KObj(r), "err", err1)
+			klog.V(4).InfoS("failed to get reservation", "reservation", klog.KObj(cached), "err", err1)
 			return err1
 		}
 
 		// check if the reservation is still scheduled; succeeded ones are ignored to update
-		if !IsReservationAvailable(r) {
+		if !util.IsReservationAvailable(r) {
 			klog.V(4).InfoS("skip sync for reservation no longer available or scheduled",
 				"reservation", klog.KObj(r))
 			return nil

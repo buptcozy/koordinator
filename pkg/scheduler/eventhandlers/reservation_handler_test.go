@@ -17,12 +17,18 @@ limitations under the License.
 package eventhandlers
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
@@ -31,7 +37,89 @@ import (
 	koordfake "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned/fake"
 	koordinatorinformers "github.com/koordinator-sh/koordinator/pkg/client/informers/externalversions"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext"
+	"github.com/koordinator-sh/koordinator/pkg/util"
 )
+
+type fakeExtendHandle struct {
+	frameworkext.ExtendedHandle
+	eventRecorder events.EventRecorder
+}
+
+func (h *fakeExtendHandle) EventRecorder() events.EventRecorder {
+	return h.eventRecorder
+}
+
+func TestAddReservationErrorHandler(t *testing.T) {
+	testNodeName := "test-node-0"
+	testR := &schedulingv1alpha1.Reservation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "reserve-pod-1",
+			UID:  "1234",
+		},
+		Spec: schedulingv1alpha1.ReservationSpec{
+			Template: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "reserve-pod-1",
+				},
+			},
+			Owners: []schedulingv1alpha1.ReservationOwner{
+				{
+					Object: &corev1.ObjectReference{
+						Name: "test-pod-1",
+					},
+				},
+			},
+			TTL: &metav1.Duration{Duration: 30 * time.Minute},
+		},
+		Status: schedulingv1alpha1.ReservationStatus{
+			Phase:    schedulingv1alpha1.ReservationPending,
+			NodeName: testNodeName,
+		},
+	}
+	testPod := util.NewReservePod(testR)
+
+	t.Run("test not panic", func(t *testing.T) {
+		sched := &scheduler.Scheduler{}
+		internalHandler := &fakeSchedulerInternalHandler{}
+		koordClientSet := koordfake.NewSimpleClientset(testR)
+		koordSharedInformerFactory := koordinatorinformers.NewSharedInformerFactory(koordClientSet, 0)
+		extendHandle := frameworkext.NewExtendedHandle(
+			frameworkext.WithKoordinatorClientSet(koordClientSet),
+			frameworkext.WithKoordinatorSharedInformerFactory(koordSharedInformerFactory),
+		)
+
+		fakeRecorder := record.NewFakeRecorder(1024)
+		eventRecorder := record.NewEventRecorderAdapter(fakeRecorder)
+		feh := &fakeExtendHandle{
+			ExtendedHandle: extendHandle,
+			eventRecorder:  eventRecorder,
+		}
+
+		AddReservationErrorHandler(sched, internalHandler, feh)
+
+		koordSharedInformerFactory.Start(nil)
+		koordSharedInformerFactory.WaitForCacheSync(nil)
+
+		queuedPodInfo := &framework.QueuedPodInfo{
+			PodInfo: framework.NewPodInfo(testPod),
+		}
+
+		expectedErr := errors.New(strings.Repeat("test error", validation.NoteLengthLimit))
+		sched.Error(queuedPodInfo, expectedErr)
+
+		r, err := koordClientSet.SchedulingV1alpha1().Reservations().Get(context.TODO(), testR.Name, metav1.GetOptions{})
+		assert.NoError(t, err)
+		assert.NotNil(t, r)
+		var message string
+		for _, v := range r.Status.Conditions {
+			if v.Type == schedulingv1alpha1.ReservationConditionScheduled && v.Reason == schedulingv1alpha1.ReasonReservationUnschedulable {
+				message = v.Message
+			}
+		}
+		assert.Equal(t, expectedErr.Error(), message)
+
+	})
+}
 
 func TestAddScheduleEventHandler(t *testing.T) {
 	t.Run("test not panic", func(t *testing.T) {
@@ -558,7 +646,7 @@ func Test_deleteReservationFromSchedulingQueue(t *testing.T) {
 	}
 }
 
-func Test_handleExpiredReservation(t *testing.T) {
+func Test_handleInactiveReservation(t *testing.T) {
 	now := time.Now()
 	type args struct {
 		internalHandler SchedulerInternalHandler
@@ -641,10 +729,37 @@ func Test_handleExpiredReservation(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "handle succeeded reservation",
+			args: args{
+				internalHandler: &fakeSchedulerInternalHandler{},
+				obj: &schedulingv1alpha1.Reservation{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "r-0",
+					},
+					Spec: schedulingv1alpha1.ReservationSpec{
+						Template: &corev1.PodTemplateSpec{},
+						Owners: []schedulingv1alpha1.ReservationOwner{
+							{
+								Object: &corev1.ObjectReference{
+									Kind: "Pod",
+									Name: "pod-0",
+								},
+							},
+						},
+						Expires: &metav1.Time{Time: now.Add(30 * time.Minute)},
+					},
+					Status: schedulingv1alpha1.ReservationStatus{
+						Phase:    schedulingv1alpha1.ReservationSucceeded,
+						NodeName: "test-node-0",
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handleExpiredReservation(nil, tt.args.internalHandler, tt.args.obj)
+			handleInactiveReservation(nil, tt.args.internalHandler, tt.args.obj)
 		})
 	}
 }

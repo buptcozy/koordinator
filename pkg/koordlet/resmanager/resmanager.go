@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
+	policyv1beta1 "k8s.io/api/policy/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +39,8 @@ import (
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/audit"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metrics"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/resmanager/configextensions"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/resmanager/plugins"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/statesinformer"
 	expireCache "github.com/koordinator-sh/koordinator/pkg/tools/cache"
 	"github.com/koordinator-sh/koordinator/pkg/util"
@@ -115,6 +117,8 @@ func (r *resmanager) Run(stopCh <-chan struct{}) error {
 
 	r.podsEvicted.Run(stopCh)
 
+	go configextensions.RunQOSGreyCtrlPlugins(r.kubeClient, stopCh)
+
 	if !cache.WaitForCacheSync(stopCh, r.statesInformer.HasSynced) {
 		return fmt.Errorf("time out waiting for kubelet meta service caches to sync")
 	}
@@ -141,6 +145,10 @@ func (r *resmanager) Run(stopCh <-chan struct{}) error {
 	rdtResCtrl := NewResctrlReconcile(r)
 	util.RunFeatureWithInit(func() error { return rdtResCtrl.RunInit(stopCh) }, rdtResCtrl.reconcile,
 		[]featuregate.Feature{features.RdtResctrl}, r.config.ReconcileIntervalSeconds, stopCh)
+
+	klog.Infof("start resmanager extensions")
+	plugins.SetupPlugins(r.kubeClient, r.metricCache, r.statesInformer)
+	utilruntime.Must(plugins.StartPlugins(r.config.QOSExtensionCfg, stopCh))
 
 	klog.Info("Starting resmanager successfully")
 	<-stopCh
@@ -169,14 +177,15 @@ func (r *resmanager) evictPodIfNotEvicted(evictPod *corev1.Pod, node *corev1.Nod
 func (r *resmanager) evictPod(evictPod *corev1.Pod, node *corev1.Node, reason string, message string) bool {
 	podEvictMessage := fmt.Sprintf("evict Pod:%s, reason: %s, message: %v", evictPod.Name, reason, message)
 	_ = audit.V(0).Pod(evictPod.Namespace, evictPod.Name).Reason(reason).Message(message).Do()
-	podEvict := policyv1.Eviction{
+	podEvict := policyv1beta1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      evictPod.Name,
 			Namespace: evictPod.Namespace,
 		},
 	}
 
-	if err := r.kubeClient.CoreV1().Pods(evictPod.Namespace).EvictV1(context.TODO(), &podEvict); err == nil {
+	// TODO EvictV1 only supports k8s 1.22+, use EvictV1beta1 for compatible reason
+	if err := r.kubeClient.CoreV1().Pods(evictPod.Namespace).EvictV1beta1(context.TODO(), &podEvict); err == nil {
 		r.eventRecorder.Eventf(node, corev1.EventTypeWarning, evictPodSuccess, podEvictMessage)
 		metrics.RecordPodEviction(reason)
 		klog.Infof("evict pod %v/%v success, reason: %v", evictPod.Namespace, evictPod.Name, reason)

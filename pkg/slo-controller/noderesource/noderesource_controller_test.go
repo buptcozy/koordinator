@@ -29,11 +29,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/koordinator-sh/koordinator/apis/extension"
+	schedulingv1alpha1 "github.com/koordinator-sh/koordinator/apis/scheduling/v1alpha1"
 	slov1alpha1 "github.com/koordinator-sh/koordinator/apis/slo/v1alpha1"
 	"github.com/koordinator-sh/koordinator/pkg/slo-controller/config"
 )
@@ -43,8 +45,9 @@ func Test_NodeResourceController_ConfigNotAvaliable(t *testing.T) {
 		cfgCache: &FakeCfgCache{
 			available: false,
 		},
-		SyncContext: SyncContext{},
-		Clock:       clock.RealClock{},
+		Recorder:      &record.FakeRecorder{},
+		BESyncContext: SyncContext{},
+		Clock:         clock.RealClock{},
 	}
 
 	nodeName := "test-node"
@@ -67,8 +70,9 @@ func Test_NodeResourceController_NodeNotFound(t *testing.T) {
 		cfgCache: &FakeCfgCache{
 			available: true,
 		},
-		SyncContext: SyncContext{},
-		Clock:       clock.RealClock{},
+		Recorder:      &record.FakeRecorder{},
+		BESyncContext: SyncContext{},
+		Clock:         clock.RealClock{},
 	}
 
 	nodeName := "test-node"
@@ -85,6 +89,7 @@ func Test_NodeResourceController_NodeMetricNotExist(t *testing.T) {
 	scheme := runtime.NewScheme()
 	clientgoscheme.AddToScheme(scheme)
 	slov1alpha1.AddToScheme(scheme)
+
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &NodeResourceReconciler{
 		Client: client,
@@ -101,8 +106,9 @@ func Test_NodeResourceController_NodeMetricNotExist(t *testing.T) {
 				},
 			},
 		},
-		SyncContext: SyncContext{},
-		Clock:       clock.RealClock{},
+		Recorder:      &record.FakeRecorder{},
+		BESyncContext: SyncContext{},
+		Clock:         clock.RealClock{},
 	}
 
 	nodeName := "test-node"
@@ -125,6 +131,7 @@ func Test_NodeResourceController_ColocationEnabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	clientgoscheme.AddToScheme(scheme)
 	slov1alpha1.AddToScheme(scheme)
+	schedulingv1alpha1.AddToScheme(scheme)
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &NodeResourceReconciler{
 		Client: client,
@@ -141,8 +148,9 @@ func Test_NodeResourceController_ColocationEnabled(t *testing.T) {
 				},
 			},
 		},
-		SyncContext: NewSyncContext(),
-		Clock:       clock.RealClock{},
+		Recorder:      &record.FakeRecorder{},
+		BESyncContext: NewSyncContext(),
+		Clock:         clock.RealClock{},
 	}
 
 	nodeName := "test-node"

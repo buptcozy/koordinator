@@ -25,12 +25,15 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/runtimehooks/hooks/cpuset"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/runtimehooks/hooks/gpu"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/runtimehooks/hooks/groupidentity"
+	"github.com/koordinator-sh/koordinator/pkg/util/system"
 )
 
 const (
 	GroupIdentity   featuregate.Feature = "GroupIdentity"
 	CPUSetAllocator featuregate.Feature = "CPUSetAllocator"
+	GPUEnvInject    featuregate.Feature = "GPUEnvInject"
 )
 
 var (
@@ -40,31 +43,45 @@ var (
 	defaultRuntimeHooksFG = map[featuregate.Feature]featuregate.FeatureSpec{
 		GroupIdentity:   {Default: false, PreRelease: featuregate.Alpha},
 		CPUSetAllocator: {Default: false, PreRelease: featuregate.Alpha},
+		GPUEnvInject:    {Default: false, PreRelease: featuregate.Alpha},
 	}
 
 	runtimeHookPlugins = map[featuregate.Feature]HookPlugin{
 		GroupIdentity:   groupidentity.Object(),
 		CPUSetAllocator: cpuset.Object(),
+		GPUEnvInject:    gpu.Object(),
 	}
 )
 
 type Config struct {
-	RuntimeHooksNetwork string
-	RuntimeHooksAddr    string
-	FeatureGates        map[string]bool
+	RuntimeHooksNetwork       string
+	RuntimeHooksAddr          string
+	RuntimeHooksFailurePolicy string
+	RuntimeHookConfigFilePath string
+	RuntimeHookHostEndpoint   string
+	RuntimeHookDisableStages  []string
+	FeatureGates              map[string]bool
 }
 
 func NewDefaultConfig() *Config {
 	return &Config{
-		RuntimeHooksNetwork: "tcp",
-		RuntimeHooksAddr:    ":9318",
-		FeatureGates:        map[string]bool{},
+		RuntimeHooksNetwork:       "unix",
+		RuntimeHooksAddr:          "/host-var-run-koordlet/koordlet.sock",
+		RuntimeHooksFailurePolicy: "Ignore",
+		RuntimeHookConfigFilePath: system.Conf.RuntimeHooksConfigDir,
+		RuntimeHookHostEndpoint:   "/var/run/koordlet/koordlet.sock",
+		RuntimeHookDisableStages:  []string{},
+		FeatureGates:              map[string]bool{},
 	}
 }
 
 func (c *Config) InitFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.RuntimeHooksNetwork, "runtime-hooks-network", c.RuntimeHooksNetwork, "rpc server network type for runtime hooks")
 	fs.StringVar(&c.RuntimeHooksAddr, "runtime-hooks-addr", c.RuntimeHooksAddr, "rpc server address for runtime hooks")
+	fs.StringVar(&c.RuntimeHooksFailurePolicy, "runtime-hooks-failure-policy", c.RuntimeHooksFailurePolicy, "failure policy for runtime hooks")
+	fs.StringVar(&c.RuntimeHookConfigFilePath, "runtime-hooks-config-path", c.RuntimeHookConfigFilePath, "config file path for runtime hooks")
+	fs.StringVar(&c.RuntimeHookHostEndpoint, "runtime-hooks-host-endpoint", c.RuntimeHookHostEndpoint, "host endpoint of runtime proxy")
+	fs.Var(cliflag.NewStringSlice(&c.RuntimeHookDisableStages), "runtime-hooks-disable-stages", "disable stages for runtime hooks")
 	fs.Var(cliflag.NewMapStringBool(&c.FeatureGates), "runtime-hooks",
 		"A set of key=value pairs that describe feature gates for runtime hooks alpha/experimental features. "+
 			"Options are:\n"+strings.Join(DefaultRuntimeHooksFG.KnownFeatures(), "\n"))

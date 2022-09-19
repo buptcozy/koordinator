@@ -21,13 +21,19 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/koordinator-sh/koordinator/pkg/util/system"
 )
 
 func Test_NewDefaultConfig(t *testing.T) {
 	expectConfig := &Config{
-		RuntimeHooksNetwork: "tcp",
-		RuntimeHooksAddr:    ":9318",
-		FeatureGates:        map[string]bool{},
+		RuntimeHooksNetwork:       "unix",
+		RuntimeHooksAddr:          "/host-var-run-koordlet/koordlet.sock",
+		RuntimeHooksFailurePolicy: "Ignore",
+		RuntimeHookConfigFilePath: system.Conf.RuntimeHooksConfigDir,
+		RuntimeHookHostEndpoint:   "/var/run/koordlet/koordlet.sock",
+		RuntimeHookDisableStages:  []string{},
+		FeatureGates:              map[string]bool{},
 	}
 	defaultConfig := NewDefaultConfig()
 	assert.Equal(t, expectConfig, defaultConfig)

@@ -17,8 +17,10 @@ limitations under the License.
 package proxyserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"path/filepath"
 	"syscall"
 
 	"google.golang.org/grpc"
@@ -26,17 +28,25 @@ import (
 	"k8s.io/klog/v2"
 
 	runtimeapi "github.com/koordinator-sh/koordinator/apis/runtime/v1alpha1"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/runtimehooks/hooks"
+	"github.com/koordinator-sh/koordinator/pkg/runtimeproxy/config"
+	"github.com/koordinator-sh/koordinator/pkg/util/system"
 )
 
 type Options struct {
-	Network string
-	Address string
+	Network        string
+	Address        string
+	HostEndpoint   string
+	FailurePolicy  config.FailurePolicyType
+	ConfigFilePath string
+	DisableStages  map[string]struct{}
 }
 
 type Server interface {
 	Setup() error
 	Start() error
 	Stop()
+	Register() error
 }
 
 type server struct {
@@ -65,6 +75,19 @@ func (s *server) Start() error {
 func (s *server) Stop() {
 	klog.Infof("stopping runtime hook server")
 	s.server.Stop()
+}
+
+func (s *server) Register() error {
+	hookConfig := &config.RuntimeHookConfig{
+		RemoteEndpoint: s.options.HostEndpoint,
+		FailurePolicy:  s.options.FailurePolicy,
+		RuntimeHooks:   hooks.GetStages(s.options.DisableStages),
+	}
+	configData, _ := json.MarshalIndent(hookConfig, "", "\t")
+	if err := system.CommonFileWrite(filepath.Join(s.options.ConfigFilePath, "koordlet.json"), string(configData)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *server) createRPCServer() error {

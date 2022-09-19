@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"github.com/koordinator-sh/koordinator/apis/scheduling/config"
@@ -88,6 +89,42 @@ func validateEstimatedResourceThresholds(thresholds map[corev1.ResourceName]int6
 		if thresholdPercent > 100 {
 			return fmt.Errorf("estimated  resource Threshold of %v should be less than 100, got %v", resourceName, thresholdPercent)
 		}
+	}
+	return nil
+}
+
+func ValidateElasticQuotaArgs(elasticArgs *config.ElasticQuotaArgs) error {
+	for resName, q := range elasticArgs.DefaultQuotaGroupMax {
+		if q.Cmp(*resource.NewQuantity(0, resource.DecimalSI)) == -1 {
+			return fmt.Errorf("elasticQuotaArgs error, defaultQuotaGroupMax should be a positive value, resourceName:%v, got %v",
+				resName, q)
+		}
+	}
+
+	for resName, q := range elasticArgs.SystemQuotaGroupMax {
+		if q.Cmp(*resource.NewQuantity(0, resource.DecimalSI)) == -1 {
+			return fmt.Errorf("elasticQuotaArgs error, systemQuotaGroupMax should be a positive value, resourceName:%v, got %v",
+				resName, q)
+		}
+	}
+
+	if elasticArgs.DelayEvictTime != nil && elasticArgs.DelayEvictTime.Duration < 0 {
+		return fmt.Errorf("elasticQuotaArgs error, DelayEvictTime should be a positive value")
+	}
+
+	if elasticArgs.RevokePodInterval != nil && elasticArgs.RevokePodInterval.Duration < 0 {
+		return fmt.Errorf("elasticQuotaArgs error, RevokePodCycle should be a positive value")
+	}
+
+	return nil
+}
+
+func ValidateCoschedulingArgs(coeSchedulingArgs *config.CoschedulingArgs) error {
+	if coeSchedulingArgs.DefaultTimeout != nil && coeSchedulingArgs.DefaultTimeout.Duration < 0 {
+		return fmt.Errorf("coeSchedulingArgs DefaultTimeoutSeconds invalid")
+	}
+	if coeSchedulingArgs.ControllerWorkers != nil && *coeSchedulingArgs.ControllerWorkers < 1 {
+		return fmt.Errorf("coeSchedulingArgs ControllerWorkers invalid")
 	}
 	return nil
 }

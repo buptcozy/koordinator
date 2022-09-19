@@ -17,21 +17,16 @@ limitations under the License.
 package reservation
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	quotav1 "k8s.io/apiserver/pkg/quota/v1"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	resourceapi "k8s.io/kubernetes/pkg/api/v1/resource"
-	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	schedulingv1alpha1 "github.com/koordinator-sh/koordinator/apis/scheduling/v1alpha1"
@@ -55,65 +50,16 @@ func StatusNodeNameIndexFunc(obj interface{}) ([]string, error) {
 	return []string{r.Status.NodeName}, nil
 }
 
-// IsReservationActive checks if the reservation is scheduled and its status is Available/Waiting (active to use).
-func IsReservationActive(r *schedulingv1alpha1.Reservation) bool {
-	return r != nil && len(GetReservationNodeName(r)) > 0 &&
-		(r.Status.Phase == schedulingv1alpha1.ReservationAvailable || r.Status.Phase == schedulingv1alpha1.ReservationWaiting)
-}
-
-// IsReservationAvailable checks if the reservation is scheduled on a node and its status is Available.
-func IsReservationAvailable(r *schedulingv1alpha1.Reservation) bool {
-	return r != nil && len(GetReservationNodeName(r)) > 0 && r.Status.Phase == schedulingv1alpha1.ReservationAvailable
-}
-
-func IsReservationSucceeded(r *schedulingv1alpha1.Reservation) bool {
-	return r != nil && r.Status.Phase == schedulingv1alpha1.ReservationSucceeded
-}
-
-func IsReservationFailed(r *schedulingv1alpha1.Reservation) bool {
-	return r != nil && r.Status.Phase == schedulingv1alpha1.ReservationFailed
-}
-
-func IsReservationExpired(r *schedulingv1alpha1.Reservation) bool {
-	if r == nil || r.Status.Phase != schedulingv1alpha1.ReservationFailed {
+func isReservationNeedExpiration(r *schedulingv1alpha1.Reservation) bool {
+	// 1. failed or succeeded reservations does not need to expire
+	if r.Status.Phase == schedulingv1alpha1.ReservationFailed || r.Status.Phase == schedulingv1alpha1.ReservationSucceeded {
 		return false
 	}
-	for _, condition := range r.Status.Conditions {
-		if condition.Type == schedulingv1alpha1.ReservationConditionReady {
-			return condition.Status == schedulingv1alpha1.ConditionStatusFalse &&
-				condition.Reason == schedulingv1alpha1.ReasonReservationExpired
-		}
-	}
-	return false
-}
-
-func GetReservationNodeName(r *schedulingv1alpha1.Reservation) string {
-	return r.Status.NodeName
-}
-
-func SetReservationNodeName(r *schedulingv1alpha1.Reservation, nodeName string) {
-	r.Status.NodeName = nodeName
-}
-
-func ValidateReservation(r *schedulingv1alpha1.Reservation) error {
-	if r == nil || r.Spec.Template == nil {
-		return fmt.Errorf("the reservation misses the template spec")
-	}
-	if len(r.Spec.Owners) <= 0 {
-		return fmt.Errorf("the reservation misses the owner spec")
-	}
-	if r.Spec.TTL == nil && r.Spec.Expires == nil {
-		return fmt.Errorf("the reservation misses the expiration spec")
-	}
-	return nil
-}
-
-func isReservationNeedExpiration(r *schedulingv1alpha1.Reservation) bool {
-	// 1. disable expiration if TTL is set as 0
+	// 2. disable expiration if TTL is set as 0
 	if r.Spec.TTL != nil && r.Spec.TTL.Duration == 0 {
 		return false
 	}
-	// 2. if both TTL and Expires are set, firstly check Expires
+	// 3. if both TTL and Expires are set, firstly check Expires
 	return r.Spec.Expires != nil && time.Now().After(r.Spec.Expires.Time) ||
 		r.Spec.TTL != nil && time.Since(r.CreationTimestamp.Time) > r.Spec.TTL.Duration
 }
@@ -122,10 +68,16 @@ func isReservationNeedCleanup(r *schedulingv1alpha1.Reservation) bool {
 	if r == nil {
 		return true
 	}
-	if IsReservationExpired(r) {
+	if util.IsReservationExpired(r) {
 		for _, condition := range r.Status.Conditions {
 			if condition.Reason == schedulingv1alpha1.ReasonReservationExpired {
 				return time.Since(condition.LastTransitionTime.Time) > defaultGCDuration
+			}
+		}
+	} else if util.IsReservationSucceeded(r) {
+		for _, condition := range r.Status.Conditions {
+			if condition.Reason == schedulingv1alpha1.ReasonReservationSucceeded {
+				return time.Since(condition.LastProbeTime.Time) > defaultGCDuration
 			}
 		}
 	}
@@ -134,7 +86,7 @@ func isReservationNeedCleanup(r *schedulingv1alpha1.Reservation) bool {
 
 func setReservationAvailable(r *schedulingv1alpha1.Reservation, nodeName string) {
 	// just annotate scheduled node at status
-	SetReservationNodeName(r, nodeName)
+	util.SetReservationNodeName(r, nodeName)
 	r.Status.Phase = schedulingv1alpha1.ReservationAvailable
 	r.Status.CurrentOwners = make([]corev1.ObjectReference, 0)
 
@@ -164,70 +116,35 @@ func setReservationAvailable(r *schedulingv1alpha1.Reservation, nodeName string)
 func setReservationExpired(r *schedulingv1alpha1.Reservation) {
 	r.Status.Phase = schedulingv1alpha1.ReservationFailed
 	// not duplicate expired info
-	expiredIdx := -1
+	idx := -1
 	isReady := false
 	for i, condition := range r.Status.Conditions {
 		if condition.Type == schedulingv1alpha1.ReservationConditionReady {
-			expiredIdx = i
+			idx = i
 			isReady = condition.Status == schedulingv1alpha1.ConditionStatusTrue
 		}
 	}
-	if expiredIdx < 0 { // if not set condition
-		expiredCondition := schedulingv1alpha1.ReservationCondition{
+	if idx < 0 { // if not set condition
+		condition := schedulingv1alpha1.ReservationCondition{
 			Type:               schedulingv1alpha1.ReservationConditionReady,
 			Status:             schedulingv1alpha1.ConditionStatusFalse,
 			Reason:             schedulingv1alpha1.ReasonReservationExpired,
 			LastProbeTime:      metav1.Now(),
 			LastTransitionTime: metav1.Now(),
 		}
-		r.Status.Conditions = append(r.Status.Conditions, expiredCondition)
+		r.Status.Conditions = append(r.Status.Conditions, condition)
 	} else if isReady { // if was ready
-		expiredCondition := schedulingv1alpha1.ReservationCondition{
+		condition := schedulingv1alpha1.ReservationCondition{
 			Type:               schedulingv1alpha1.ReservationConditionReady,
 			Status:             schedulingv1alpha1.ConditionStatusFalse,
 			Reason:             schedulingv1alpha1.ReasonReservationExpired,
 			LastProbeTime:      metav1.Now(),
 			LastTransitionTime: metav1.Now(),
 		}
-		r.Status.Conditions[expiredIdx] = expiredCondition
-	} else { // if already expired
-		r.Status.Conditions[expiredIdx].LastProbeTime = metav1.Now()
-	}
-}
-
-func setReservationUnschedulable(r *schedulingv1alpha1.Reservation, msg string) {
-	r.Status.Phase = schedulingv1alpha1.ReservationFailed
-	// not duplicate condition info
-	expiredIdx := -1
-	isScheduled := false
-	for i, condition := range r.Status.Conditions {
-		if condition.Type == schedulingv1alpha1.ReservationConditionScheduled {
-			expiredIdx = i
-			isScheduled = condition.Status == schedulingv1alpha1.ConditionStatusTrue
-		}
-	}
-	if expiredIdx < 0 { // if not set condition
-		expiredCondition := schedulingv1alpha1.ReservationCondition{
-			Type:               schedulingv1alpha1.ReservationConditionScheduled,
-			Status:             schedulingv1alpha1.ConditionStatusFalse,
-			Reason:             schedulingv1alpha1.ReasonReservationUnschedulable,
-			Message:            msg,
-			LastProbeTime:      metav1.Now(),
-			LastTransitionTime: metav1.Now(),
-		}
-		r.Status.Conditions = append(r.Status.Conditions, expiredCondition)
-	} else if isScheduled { // if was scheduled
-		expiredCondition := schedulingv1alpha1.ReservationCondition{
-			Type:               schedulingv1alpha1.ReservationConditionScheduled,
-			Status:             schedulingv1alpha1.ConditionStatusFalse,
-			Reason:             schedulingv1alpha1.ReasonReservationUnschedulable,
-			Message:            msg,
-			LastProbeTime:      metav1.Now(),
-			LastTransitionTime: metav1.Now(),
-		}
-		r.Status.Conditions[expiredIdx] = expiredCondition
-	} else { // if already unschedulable
-		r.Status.Conditions[expiredIdx].LastProbeTime = metav1.Now()
+		r.Status.Conditions[idx] = condition
+	} else { // if already not ready
+		r.Status.Conditions[idx].Reason = schedulingv1alpha1.ReasonReservationExpired
+		r.Status.Conditions[idx].LastProbeTime = metav1.Now()
 	}
 }
 
@@ -265,16 +182,19 @@ func setReservationSucceeded(r *schedulingv1alpha1.Reservation) {
 			idx = i
 		}
 	}
-	condition := schedulingv1alpha1.ReservationCondition{
-		Type:          schedulingv1alpha1.ReservationConditionReady,
-		Status:        schedulingv1alpha1.ConditionStatusFalse,
-		Reason:        schedulingv1alpha1.ReasonReservationSucceeded,
-		LastProbeTime: metav1.Now(),
-	}
 	if idx < 0 { // if not set condition
+		condition := schedulingv1alpha1.ReservationCondition{
+			Type:               schedulingv1alpha1.ReservationConditionReady,
+			Status:             schedulingv1alpha1.ConditionStatusFalse,
+			Reason:             schedulingv1alpha1.ReasonReservationSucceeded,
+			LastProbeTime:      metav1.Now(),
+			LastTransitionTime: metav1.Now(),
+		}
 		r.Status.Conditions = append(r.Status.Conditions, condition)
 	} else {
-		r.Status.Conditions[idx] = condition
+		r.Status.Conditions[idx].Status = schedulingv1alpha1.ConditionStatusFalse
+		r.Status.Conditions[idx].Reason = schedulingv1alpha1.ReasonReservationSucceeded
+		r.Status.Conditions[idx].LastProbeTime = metav1.Now()
 	}
 }
 
@@ -316,13 +236,9 @@ func removeReservationSucceeded(r *schedulingv1alpha1.Reservation) {
 		}
 	}
 	if idx >= 0 {
-		condition := schedulingv1alpha1.ReservationCondition{
-			Type:          schedulingv1alpha1.ReservationConditionReady,
-			Status:        schedulingv1alpha1.ConditionStatusTrue,
-			Reason:        schedulingv1alpha1.ReasonReservationAvailable,
-			LastProbeTime: r.Status.Conditions[idx].LastTransitionTime,
-		}
-		r.Status.Conditions[idx] = condition
+		r.Status.Conditions[idx].Status = schedulingv1alpha1.ConditionStatusTrue
+		r.Status.Conditions[idx].Reason = schedulingv1alpha1.ReasonReservationAvailable
+		r.Status.Conditions[idx].LastProbeTime = r.Status.Conditions[idx].LastTransitionTime
 	}
 }
 
@@ -331,30 +247,6 @@ func getReservationRequests(r *schedulingv1alpha1.Reservation) corev1.ResourceLi
 		Spec: r.Spec.Template.Spec,
 	})
 	return requests
-}
-
-func getUnschedulableMessage(filteredNodeStatusMap framework.NodeToStatusMap) string {
-	var msg strings.Builder
-	// format: [node=xxx msg=yyy failedPlugin=zzz]
-	for node, status := range filteredNodeStatusMap {
-		msg.WriteString("[node=")
-		msg.WriteString(node)
-		msg.WriteString(", msg=")
-		if status == nil {
-			msg.WriteString("]")
-			continue
-		}
-		msg.WriteString(status.Message())
-		msg.WriteString(", failedPlugin=")
-		msg.WriteString(status.FailedPlugin())
-		msg.WriteByte(']')
-	}
-	max := validation.NoteLengthLimit
-	if msg.Len() <= max {
-		return msg.String()
-	}
-	suffix := " ..."
-	return msg.String()[:max-len(suffix)] + suffix
 }
 
 func matchReservation(pod *corev1.Pod, rMeta *reservationInfo) bool {
@@ -457,25 +349,6 @@ func getPodOwner(pod *corev1.Pod) corev1.ObjectReference {
 
 func getOwnerKey(owner *corev1.ObjectReference) string {
 	return string(owner.UID)
-}
-
-func retryOnConflictOrTooManyRequests(fn func() error) error {
-	return retry.OnError(retry.DefaultBackoff, func(err error) bool {
-		return errors.IsConflict(err) || errors.IsTooManyRequests(err)
-	}, fn)
-}
-
-func generatePodPatch(oldPod, newPod *corev1.Pod) ([]byte, error) {
-	oldData, err := json.Marshal(oldPod)
-	if err != nil {
-		return nil, err
-	}
-
-	newData, err := json.Marshal(newPod)
-	if err != nil {
-		return nil, err
-	}
-	return strategicpatch.CreateTwoWayMergePatch(oldData, newData, &corev1.Pod{})
 }
 
 func getPreFilterState(cycleState *framework.CycleState) *stateData {

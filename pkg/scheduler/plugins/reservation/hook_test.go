@@ -27,6 +27,7 @@ import (
 
 	schedulingv1alpha1 "github.com/koordinator-sh/koordinator/apis/scheduling/v1alpha1"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext"
+	"github.com/koordinator-sh/koordinator/pkg/util"
 )
 
 func TestPreFilterHook(t *testing.T) {
@@ -66,7 +67,7 @@ func TestPreFilterHook(t *testing.T) {
 			TTL: &metav1.Duration{Duration: 30 * time.Minute},
 		},
 		Status: schedulingv1alpha1.ReservationStatus{
-			Phase:    schedulingv1alpha1.ReasonReservationAvailable,
+			Phase:    schedulingv1alpha1.ReservationAvailable,
 			NodeName: testNodeName,
 		},
 	}
@@ -77,7 +78,7 @@ func TestPreFilterHook(t *testing.T) {
 		},
 	}
 	testHandle1 := &fakeExtendedHandle{
-		sharedLister: newFakeSharedLister([]*corev1.Pod{NewReservePod(rScheduled)}, []*corev1.Node{testNode}, false),
+		sharedLister: newFakeSharedLister([]*corev1.Pod{util.NewReservePod(rScheduled)}, []*corev1.Node{testNode}, false),
 		koordSharedInformerFactory: &fakeKoordinatorSharedInformerFactory{
 			informer: &fakeIndexedInformer{
 				rOnNode: map[string][]*schedulingv1alpha1.Reservation{
@@ -88,7 +89,7 @@ func TestPreFilterHook(t *testing.T) {
 	}
 	type fields struct {
 		pluginEnabled    bool
-		parallelizeUntil func(handle frameworkext.ExtendedHandle) parallelizeUntilFunc
+		parallelizeUntil func(handle framework.Handle) parallelizeUntilFunc
 	}
 	type args struct {
 		handle     frameworkext.ExtendedHandle
@@ -221,7 +222,7 @@ func TestFilterHook(t *testing.T) {
 			TTL: &metav1.Duration{Duration: 30 * time.Minute},
 		},
 		Status: schedulingv1alpha1.ReservationStatus{
-			Phase:    schedulingv1alpha1.ReasonReservationAvailable,
+			Phase:    schedulingv1alpha1.ReservationAvailable,
 			NodeName: testNodeName,
 		},
 	}
@@ -387,7 +388,7 @@ func Test_preparePreFilterNodeInfo(t *testing.T) {
 			TTL: &metav1.Duration{Duration: 30 * time.Minute},
 		},
 		Status: schedulingv1alpha1.ReservationStatus{
-			Phase:    schedulingv1alpha1.ReasonReservationAvailable,
+			Phase:    schedulingv1alpha1.ReservationAvailable,
 			NodeName: testNodeName,
 		},
 	}

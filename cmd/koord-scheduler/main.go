@@ -27,6 +27,9 @@ import (
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/batchresource"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/compatibledefaultpreemption"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/coscheduling"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/deviceshare"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/elasticquota"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/loadaware"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/nodenumaresource"
 	"github.com/koordinator-sh/koordinator/pkg/scheduler/plugins/reservation"
@@ -54,6 +57,9 @@ func main() {
 		app.WithPlugin(compatibledefaultpreemption.Name, compatibledefaultpreemption.New),
 		app.WithPlugin(reservation.Name, reservation.New),
 		app.WithPlugin(batchresource.Name, batchresource.New),
+		app.WithPlugin(coscheduling.Name, coscheduling.New),
+		app.WithPlugin(deviceshare.Name, deviceshare.New),
+		app.WithPlugin(elasticquota.Name, elasticquota.New),
 	)
 
 	logs.InitLogs()

@@ -10,10 +10,9 @@ coverage:
           - unittests
         paths:
           - "pkg"
-        # advanced settings
-        if_ci_failed: error # success, failure, error, ignore
+        if_ci_failed: error
         if_no_uploads: error
-        if_not_found: success # no commit found? still set a success
+        if_not_found: success
     patch:
       # diff coverage
       default:
@@ -22,11 +21,14 @@ coverage:
           - unittests
         paths:
           - "pkg"
-        if_ci_failed: error
+        informational: true
+        if_ci_failed: ignore
         if_no_uploads: success
         if_not_found: success
 
 ignore:
+  - "apis"
+  - "pkg/client"
   - "**/*_generated.*"
 
 github_checks:

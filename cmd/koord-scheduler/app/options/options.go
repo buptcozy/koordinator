@@ -17,14 +17,14 @@ limitations under the License.
 package options
 
 import (
-	nrtclientset "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/clientset/versioned"
-	nrtinformers "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/informers/externalversions"
+	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/runtime"
 	scheduleroptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
 
 	schedulerappconfig "github.com/koordinator-sh/koordinator/cmd/koord-scheduler/app/config"
 	koordinatorclientset "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned"
 	koordinatorinformers "github.com/koordinator-sh/koordinator/pkg/client/informers/externalversions"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext/services"
 )
 
 // Options has all the params needed to run a Scheduler
@@ -56,16 +56,10 @@ func (o *Options) Config() (*schedulerappconfig.Config, error) {
 	}
 	koordinatorSharedInformerFactory := koordinatorinformers.NewSharedInformerFactoryWithOptions(koordinatorClient, 0)
 
-	nrtClient, err := nrtclientset.NewForConfig(&kubeConfig)
-	if err != nil {
-		return nil, err
-	}
-	nrtSharedInformerFactory := nrtinformers.NewSharedInformerFactoryWithOptions(nrtClient, 0)
-
 	return &schedulerappconfig.Config{
 		Config:                           config,
+		ServicesEngine:                   services.NewEngine(gin.New()),
 		KoordinatorClient:                koordinatorClient,
 		KoordinatorSharedInformerFactory: koordinatorSharedInformerFactory,
-		NRTSharedInformerFactory:         nrtSharedInformerFactory,
 	}, nil
 }

@@ -123,3 +123,42 @@ type ReservationArgs struct {
 	// EnablePreemption indicates whether to enable preemption for reservations.
 	EnablePreemption *bool `json:"enablePreemption,omitempty"`
 }
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// ElasticQuotaArgs holds arguments used to configure the ElasticQuota plugin.
+type ElasticQuotaArgs struct {
+	metav1.TypeMeta
+
+	// DelayEvictTime is the duration to handle the jitter of used and runtime
+	DelayEvictTime *metav1.Duration `json:"delayEvictTime,omitempty"`
+
+	// RevokePodInterval is the interval to check quotaGroup's used and runtime
+	RevokePodInterval *metav1.Duration `json:"revokePodInterval,omitempty"`
+
+	// DefaultQuotaGroupMax limit the maxQuota of DefaultQuotaGroup
+	DefaultQuotaGroupMax corev1.ResourceList `json:"defaultQuotaGroupMax,omitempty"`
+
+	// SystemQuotaGroupMax limit the maxQuota of SystemQuotaGroup
+	SystemQuotaGroupMax corev1.ResourceList `json:"systemQuotaGroupMax,omitempty"`
+
+	// QuotaGroupNamespace is the namespace of the DefaultQuotaGroup/SystemQuotaGroup
+	QuotaGroupNamespace string `json:"quotaGroupNamespace,omitempty"`
+
+	// MonitorAllQuotas monitor the quotaGroups' used and runtime Quota to revoke pods
+	MonitorAllQuotas *bool `json:"monitorAllQuotas,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// CoschedulingArgs defines the parameters for Gang Scheduling plugin.
+type CoschedulingArgs struct {
+	metav1.TypeMeta
+
+	// DefaultTimeout is the default gang's waiting time in Permit stage
+	// default is 600 seconds
+	DefaultTimeout *metav1.Duration `json:"defaultTimeout,omitempty"`
+	// Workers number of controller
+	// default is 1
+	ControllerWorkers *int64 `json:"controllerWorkers,omitempty"`
+}

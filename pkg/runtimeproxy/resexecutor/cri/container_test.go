@@ -244,14 +244,14 @@ func TestContainerResourceExecutor_ResourceCheckPoint(t *testing.T) {
 			fields: fields{
 				ContainerInfo: store.ContainerInfo{
 					ContainerResourceHookRequest: &v1alpha1.ContainerResourceHookRequest{
-						ContainerMata: &v1alpha1.ContainerMetadata{},
+						ContainerMeta: &v1alpha1.ContainerMetadata{},
 					},
 				},
 			},
 			wantErr: false,
 			wantStoreInfo: &store.ContainerInfo{
 				ContainerResourceHookRequest: &v1alpha1.ContainerResourceHookRequest{
-					ContainerMata: &v1alpha1.ContainerMetadata{
+					ContainerMeta: &v1alpha1.ContainerMetadata{
 						Id: "111111",
 					},
 				}},
@@ -262,7 +262,7 @@ func TestContainerResourceExecutor_ResourceCheckPoint(t *testing.T) {
 			ContainerInfo: tt.fields.ContainerInfo,
 		}
 		err := c.ResourceCheckPoint(tt.args.rsp)
-		containerInfo := store.GetContainerInfo(c.ContainerInfo.ContainerMata.GetId())
+		containerInfo := store.GetContainerInfo(c.ContainerInfo.ContainerMeta.GetId())
 		assert.Equal(t, tt.wantErr, err != nil, err)
 		assert.Equal(t, tt.wantStoreInfo, containerInfo)
 	}
@@ -343,7 +343,7 @@ func TestContainerResourceExecutor_ParseRequest_CreateContainerRequest(t *testin
 					PodAnnotations: map[string]string{
 						"annotation.dummy.koordinator.sh/TestContainerResourceExecutor_ParseRequest_CreateContainerRequest_Pod": "true",
 					},
-					ContainerMata: &v1alpha1.ContainerMetadata{
+					ContainerMeta: &v1alpha1.ContainerMetadata{
 						Name:    "test container",
 						Attempt: 101010,
 					},
@@ -359,6 +359,7 @@ func TestContainerResourceExecutor_ParseRequest_CreateContainerRequest(t *testin
 						},
 					},
 					PodCgroupParent: "/kubepods/besteffort",
+					ContainerEnvs:   map[string]string{},
 				},
 			},
 		},
@@ -374,7 +375,7 @@ func TestContainerResourceExecutor_ParseRequest_CreateContainerRequest(t *testin
 		_ = c.ParseRequest(tt.args.containerReq)
 
 		// check if container cache is set correctly
-		assert.Equal(t, tt.wantContainerExecutor, c.ContainerInfo)
+		assert.Equal(t, tt.wantContainerExecutor, c.ContainerInfo, tt.name)
 	}
 }
 
@@ -406,7 +407,7 @@ func TestContainerResourceExecutor_ParseRequest_UpdateContainerResourcesRequest(
 							Namespace: "mock namespace",
 							Uid:       "202207121604",
 						},
-						ContainerMata: &v1alpha1.ContainerMetadata{
+						ContainerMeta: &v1alpha1.ContainerMetadata{
 							Name:    "test container",
 							Attempt: 101010,
 						},
@@ -432,7 +433,7 @@ func TestContainerResourceExecutor_ParseRequest_UpdateContainerResourcesRequest(
 						Namespace: "mock namespace",
 						Uid:       "202207121604",
 					},
-					ContainerMata: &v1alpha1.ContainerMetadata{
+					ContainerMeta: &v1alpha1.ContainerMetadata{
 						Name:    "test container",
 						Attempt: 101010,
 					},
@@ -461,5 +462,70 @@ func TestContainerResourceExecutor_ParseRequest_UpdateContainerResourcesRequest(
 
 		// check if container cache is set correctly
 		assert.Equal(t, tt.wantContainerInfo, c.ContainerInfo)
+	}
+}
+
+func TestContainerResourceExecutor_ParseContainer(t *testing.T) {
+	tests := []struct {
+		name              string
+		container         *runtimeapi.Container
+		podSandboxID      string
+		pod               *store.PodSandboxInfo // this is the pod in store belonging to this container
+		containerInternal *store.ContainerInfo
+	}{
+		{
+			name: "container failover normal",
+			container: &runtimeapi.Container{
+				PodSandboxId: "podSandboxID0",
+				Annotations: map[string]string{
+					"containerAnnotationKey1": "containerAnnotationValue1",
+				},
+				Metadata: &runtimeapi.ContainerMetadata{
+					Name:    "container",
+					Attempt: 2,
+				},
+			},
+			podSandboxID: "podSandboxID0",
+			pod: &store.PodSandboxInfo{
+				PodSandboxHookRequest: &v1alpha1.PodSandboxHookRequest{
+					PodMeta: &v1alpha1.PodSandboxMetadata{
+						Name: "podName",
+					},
+					Annotations: map[string]string{
+						"annotationKey1": "annotationValue1",
+					},
+					Labels: map[string]string{
+						"labelsKey1": "labelsValue1",
+					},
+				},
+			},
+			containerInternal: &store.ContainerInfo{
+				ContainerResourceHookRequest: &v1alpha1.ContainerResourceHookRequest{
+					ContainerAnnotations: map[string]string{
+						"containerAnnotationKey1": "containerAnnotationValue1",
+					},
+					ContainerMeta: &v1alpha1.ContainerMetadata{
+						Name:    "container",
+						Attempt: 2,
+					},
+					PodMeta: &v1alpha1.PodSandboxMetadata{
+						Name: "podName",
+					},
+					PodAnnotations: map[string]string{
+						"annotationKey1": "annotationValue1",
+					},
+					PodLabels: map[string]string{
+						"labelsKey1": "labelsValue1",
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		containerExecutor := NewContainerResourceExecutor()
+		store.WritePodSandboxInfo(tt.podSandboxID, tt.pod)
+		containerExecutor.ParseContainer(tt.container)
+		assert.Equal(t, tt.containerInternal, &containerExecutor.ContainerInfo, tt.name)
 	}
 }

@@ -18,7 +18,6 @@ package resmanager
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -32,6 +31,7 @@ import (
 
 	"github.com/koordinator-sh/koordinator/apis/extension"
 	slov1alpha1 "github.com/koordinator-sh/koordinator/apis/slo/v1alpha1"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/executor"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
 	mock_metriccache "github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache/mockmetriccache"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/statesinformer"
@@ -47,11 +47,11 @@ func testingPrepareResctrlL3CatPath(t *testing.T, cbmStr, rootSchemataStr string
 	assert.NoError(t, err)
 
 	cbmPath := filepath.Join(l3CatDir, system.CbmMaskFileName)
-	err = ioutil.WriteFile(cbmPath, []byte(cbmStr), 0666)
+	err = os.WriteFile(cbmPath, []byte(cbmStr), 0666)
 	assert.NoError(t, err)
 
 	schemataPath := filepath.Join(resctrlDir, system.SchemataFileName)
-	err = ioutil.WriteFile(schemataPath, []byte(rootSchemataStr), 0666)
+	err = os.WriteFile(schemataPath, []byte(rootSchemataStr), 0666)
 	assert.NoError(t, err)
 }
 
@@ -64,10 +64,10 @@ func testingPrepareResctrlL3CatGroups(t *testing.T, cbmStr, rootSchemataStr stri
 	err := os.MkdirAll(beSchemataDir, 0700)
 	assert.NoError(t, err)
 	beSchemataPath := filepath.Join(beSchemataDir, system.SchemataFileName)
-	err = ioutil.WriteFile(beSchemataPath, beSchemataData, 0666)
+	err = os.WriteFile(beSchemataPath, beSchemataData, 0666)
 	assert.NoError(t, err)
 	beTasksPath := filepath.Join(beSchemataDir, system.ResctrlTaskFileName)
-	err = ioutil.WriteFile(beTasksPath, []byte{}, 0666)
+	err = os.WriteFile(beTasksPath, []byte{}, 0666)
 	assert.NoError(t, err)
 
 	lsSchemataData := []byte("    L3:0=ff;1=ff\n    MB:0=100;1=100")
@@ -75,10 +75,10 @@ func testingPrepareResctrlL3CatGroups(t *testing.T, cbmStr, rootSchemataStr stri
 	err = os.MkdirAll(lsSchemataDir, 0700)
 	assert.NoError(t, err)
 	lsSchemataPath := filepath.Join(lsSchemataDir, system.SchemataFileName)
-	err = ioutil.WriteFile(lsSchemataPath, lsSchemataData, 0666)
+	err = os.WriteFile(lsSchemataPath, lsSchemataData, 0666)
 	assert.NoError(t, err)
 	lsTasksPath := filepath.Join(lsSchemataDir, system.ResctrlTaskFileName)
-	err = ioutil.WriteFile(lsTasksPath, []byte{}, 0666)
+	err = os.WriteFile(lsTasksPath, []byte{}, 0666)
 	assert.NoError(t, err)
 
 	lsrSchemataData := []byte("    L3:0=ff;1=ff\n    MB:0=100;1=100")
@@ -86,10 +86,10 @@ func testingPrepareResctrlL3CatGroups(t *testing.T, cbmStr, rootSchemataStr stri
 	err = os.MkdirAll(lsrSchemataDir, 0700)
 	assert.NoError(t, err)
 	lsrSchemataPath := filepath.Join(lsrSchemataDir, system.SchemataFileName)
-	err = ioutil.WriteFile(lsrSchemataPath, lsrSchemataData, 0666)
+	err = os.WriteFile(lsrSchemataPath, lsrSchemataData, 0666)
 	assert.NoError(t, err)
 	lsrTasksPath := filepath.Join(lsrSchemataDir, system.ResctrlTaskFileName)
-	err = ioutil.WriteFile(lsrTasksPath, []byte{}, 0666)
+	err = os.WriteFile(lsrTasksPath, []byte{}, 0666)
 	assert.NoError(t, err)
 }
 
@@ -99,7 +99,7 @@ func testingPrepareContainerCgroupCPUTasks(t *testing.T, containerParentPath, ta
 	assert.NoError(t, err)
 
 	containerTasksPath := filepath.Join(containerCgroupDir, system.CPUTaskFileName)
-	err = ioutil.WriteFile(containerTasksPath, []byte(tasksStr), 0666)
+	err = os.WriteFile(containerTasksPath, []byte(tasksStr), 0666)
 	assert.NoError(t, err)
 }
 
@@ -213,7 +213,7 @@ func Test_calculateCatL3Schemata(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := calculateCatL3MaskValue(tt.args.cbm, tt.args.startPercent, tt.args.endPercent)
+			got, err := system.CalculateCatL3MaskValue(tt.args.cbm, tt.args.startPercent, tt.args.endPercent)
 			assert.Equal(t, tt.wantErr, err != nil)
 			assert.Equal(t, tt.want, got)
 		})
@@ -619,7 +619,7 @@ func TestResctrlReconcile_calculateAndApplyCatL3PolicyForGroup(t *testing.T) {
 			testingPrepareResctrlL3CatGroups(t, "ff", "")
 
 			r := ResctrlReconcile{
-				executor: NewResourceUpdateExecutor("ResctrlExecutor", 60),
+				executor: executor.NewResourceUpdateExecutor("ResctrlExecutor", 60),
 			}
 			stop := make(chan struct{})
 			r.RunInit(stop)
@@ -631,9 +631,9 @@ func TestResctrlReconcile_calculateAndApplyCatL3PolicyForGroup(t *testing.T) {
 			if tt.field.noUpdate {
 				// prepare fake record
 				schemataFilePath := system.GetResctrlSchemataFilePath(tt.args.group)
-				updaterKey := schemataFilePath + ":" + L3SchemataPrefix
-				fakeResource := NewDetailCommonResourceUpdater(updaterKey, schemataFilePath,
-					tt.want, GroupOwnerRef(tt.args.group), updateResctrlSchemataFunc)
+				updaterKey := schemataFilePath + ":" + executor.L3SchemataPrefix
+				fakeResource := executor.NewDetailCommonResourceUpdater(updaterKey, schemataFilePath,
+					tt.want, executor.GroupOwnerRef(tt.args.group), executor.UpdateResctrlSchemataFunc)
 				isUpdate := r.executor.UpdateBatchByCache(fakeResource)
 				assert.True(t, isUpdate)
 			}
@@ -644,7 +644,7 @@ func TestResctrlReconcile_calculateAndApplyCatL3PolicyForGroup(t *testing.T) {
 			assert.Equal(t, tt.wantErr, err != nil)
 
 			schemataPath := filepath.Join(validSysFSRootDir, system.ResctrlDir, tt.args.group, system.SchemataFileName)
-			got, _ := ioutil.ReadFile(schemataPath)
+			got, _ := os.ReadFile(schemataPath)
 			assert.Equal(t, tt.want, string(got))
 		})
 	}
@@ -768,7 +768,7 @@ func TestResctrlReconcile_calculateAndApplyCatMbPolicyForGroup(t *testing.T) {
 
 			testingPrepareResctrlL3CatGroups(t, "ff", "")
 			r := ResctrlReconcile{
-				executor: NewResourceUpdateExecutor("ResctrlExecutor", 60),
+				executor: executor.NewResourceUpdateExecutor("ResctrlExecutor", 60),
 			}
 			stop := make(chan struct{})
 			r.RunInit(stop)
@@ -780,9 +780,9 @@ func TestResctrlReconcile_calculateAndApplyCatMbPolicyForGroup(t *testing.T) {
 			if tt.field.noUpdate {
 				// prepare fake record
 				schemataFilePath := system.GetResctrlSchemataFilePath(tt.args.group)
-				updaterKey := schemataFilePath + ":" + MbSchemataPrefix
-				fakeResource := NewDetailCommonResourceUpdater(updaterKey, schemataFilePath,
-					tt.want, GroupOwnerRef(tt.args.group), updateResctrlSchemataFunc)
+				updaterKey := schemataFilePath + ":" + executor.MbSchemataPrefix
+				fakeResource := executor.NewDetailCommonResourceUpdater(updaterKey, schemataFilePath,
+					tt.want, executor.GroupOwnerRef(tt.args.group), executor.UpdateResctrlSchemataFunc)
 				isUpdate := r.executor.UpdateBatchByCache(fakeResource)
 				assert.True(t, isUpdate)
 			}
@@ -793,7 +793,7 @@ func TestResctrlReconcile_calculateAndApplyCatMbPolicyForGroup(t *testing.T) {
 			assert.Equal(t, tt.wantErr, err != nil)
 
 			schemataPath := filepath.Join(validSysFSRootDir, system.ResctrlDir, tt.args.group, system.SchemataFileName)
-			got, _ := ioutil.ReadFile(schemataPath)
+			got, _ := os.ReadFile(schemataPath)
 			assert.Equal(t, tt.want, string(got))
 		})
 	}
@@ -865,7 +865,7 @@ func TestResctrlReconcile_calculateAndApplyCatL3GroupTasks(t *testing.T) {
 				system.Conf.SysFSRootDir = "invalidPath"
 			}
 			r := ResctrlReconcile{
-				executor: NewResourceUpdateExecutor("ResctrlExecutor", 60),
+				executor: executor.NewResourceUpdateExecutor("ResctrlExecutor", 60),
 			}
 			stop := make(chan struct{})
 			r.RunInit(stop)
@@ -874,7 +874,7 @@ func TestResctrlReconcile_calculateAndApplyCatL3GroupTasks(t *testing.T) {
 			err := r.calculateAndApplyCatL3GroupTasks(tt.args.group, tt.args.taskIds)
 			assert.Equal(t, tt.wantErr, err != nil)
 
-			out, err := ioutil.ReadFile(filepath.Join(validSysFSRootDir, system.ResctrlDir, tt.args.group,
+			out, err := os.ReadFile(filepath.Join(validSysFSRootDir, system.ResctrlDir, tt.args.group,
 				system.CPUTaskFileName))
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, string(out))
@@ -942,7 +942,7 @@ func TestResctrlReconcile_reconcileCatResctrlPolicy(t *testing.T) {
 		rm := &resmanager{metricCache: metricCache}
 		r := ResctrlReconcile{
 			resManager: rm,
-			executor:   NewResourceUpdateExecutor("ResctrlReconcile", 60),
+			executor:   executor.NewResourceUpdateExecutor("ResctrlReconcile", 60),
 		}
 		stop := make(chan struct{})
 		r.RunInit(stop)
@@ -953,12 +953,12 @@ func TestResctrlReconcile_reconcileCatResctrlPolicy(t *testing.T) {
 
 		beSchemataPath := filepath.Join(resctrlDirPath, BEResctrlGroup, system.SchemataFileName)
 		expectBESchemataStr := "L3:0=f;1=f;\n"
-		got, _ := ioutil.ReadFile(beSchemataPath)
+		got, _ := os.ReadFile(beSchemataPath)
 		assert.Equal(t, expectBESchemataStr, string(got))
 
 		lsSchemataPath := filepath.Join(resctrlDirPath, LSResctrlGroup, system.SchemataFileName)
 		expectLSSchemataStr := "MB:0=90;1=90;\n"
-		got, _ = ioutil.ReadFile(lsSchemataPath)
+		got, _ = os.ReadFile(lsSchemataPath)
 		assert.Equal(t, expectLSSchemataStr, string(got))
 
 		// log error for invalid be resctrl path
@@ -1046,7 +1046,7 @@ func TestResctrlReconcile_reconcileResctrlGroups(t *testing.T) {
 		rm := &resmanager{statesInformer: statesInformer}
 		r := ResctrlReconcile{
 			resManager: rm,
-			executor:   NewResourceUpdateExecutor("ResctrlReconcile", 30),
+			executor:   executor.NewResourceUpdateExecutor("ResctrlReconcile", 30),
 		}
 		stop := make(chan struct{})
 		r.RunInit(stop)
@@ -1068,20 +1068,20 @@ func TestResctrlReconcile_reconcileResctrlGroups(t *testing.T) {
 		r.reconcileResctrlGroups(testQOSStrategy)
 
 		// check if the reconciliation is a success
-		out, err := ioutil.ReadFile(filepath.Join(system.Conf.SysFSRootDir, system.ResctrlDir, BEResctrlGroup,
+		out, err := os.ReadFile(filepath.Join(system.Conf.SysFSRootDir, system.ResctrlDir, BEResctrlGroup,
 			system.CPUTaskFileName))
 		assert.NoError(t, err)
 		assert.Equal(t, wantResctrlTaskStr, string(out))
 
 		beTasksPath := filepath.Join(system.Conf.SysFSRootDir, system.ResctrlDir, BEResctrlGroup, system.ResctrlTaskFileName)
-		err = ioutil.WriteFile(beTasksPath, []byte(testingBEResctrlTasksStr), 0666)
+		err = os.WriteFile(beTasksPath, []byte(testingBEResctrlTasksStr), 0666)
 		assert.NoError(t, err)
 
 		// run reconcileResctrlGroups
 		r.reconcileResctrlGroups(testQOSStrategy)
 
 		// check if the reconciliation is a success
-		out, err = ioutil.ReadFile(filepath.Join(system.Conf.SysFSRootDir, system.ResctrlDir, BEResctrlGroup,
+		out, err = os.ReadFile(filepath.Join(system.Conf.SysFSRootDir, system.ResctrlDir, BEResctrlGroup,
 			system.CPUTaskFileName))
 		assert.NoError(t, err)
 		assert.Equal(t, wantResctrlTaskStr, string(out))
@@ -1281,7 +1281,7 @@ func Test_calculateL3SchemataResource(t *testing.T) {
 		system.Conf.SysFSRootDir = path.Join(helper.TempDir, sysFSRootDirName)
 
 		testingPrepareResctrlL3CatGroups(t, "7ff", "    L3:0=ff;1=ff\n    MB:0=100;1=100")
-		updater := calculateL3SchemataResource(BEResctrlGroup, "3c", 2)
+		updater := executor.CalculateL3SchemataResource(BEResctrlGroup, "3c", 2)
 		assert.Equal(t, updater.Value(), "L3:0=3c;1=3c;\n")
 
 	})
@@ -1296,7 +1296,7 @@ func Test_calculateMbSchemataResource(t *testing.T) {
 		system.Conf.SysFSRootDir = path.Join(helper.TempDir, sysFSRootDirName)
 
 		testingPrepareResctrlL3CatGroups(t, "7ff", "    L3:0=ff;1=ff\n    MB:0=100;1=100")
-		updater := calculateMbSchemataResource(BEResctrlGroup, "90", 2)
+		updater := executor.CalculateMbSchemataResource(BEResctrlGroup, "90", 2)
 		assert.Equal(t, updater.Value(), "MB:0=90;1=90;\n")
 
 	})

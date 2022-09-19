@@ -20,7 +20,6 @@ import (
 	"context"
 	"sync"
 
-	nrtinformers "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/informers/externalversions"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
@@ -29,6 +28,7 @@ import (
 
 	koordinatorclientset "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned"
 	koordinatorinformers "github.com/koordinator-sh/koordinator/pkg/client/informers/externalversions"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext/services"
 )
 
 // ExtendedHandle extends the k8s scheduling framework Handle interface
@@ -37,16 +37,25 @@ type ExtendedHandle interface {
 	framework.Handle
 	KoordinatorClientSet() koordinatorclientset.Interface
 	KoordinatorSharedInformerFactory() koordinatorinformers.SharedInformerFactory
-	NodeResourceTopologySharedInformerFactory() nrtinformers.SharedInformerFactory
+	SnapshotSharedLister() framework.SharedLister
 }
 
 type extendedHandleOptions struct {
+	servicesEngine                   *services.Engine
 	koordinatorClientSet             koordinatorclientset.Interface
 	koordinatorSharedInformerFactory koordinatorinformers.SharedInformerFactory
-	nrtSharedInformerFactory         nrtinformers.SharedInformerFactory
+	sharedListerAdapter              SharedListerAdapter
 }
 
+type SharedListerAdapter func(lister framework.SharedLister) framework.SharedLister
+
 type Option func(*extendedHandleOptions)
+
+func WithServicesEngine(engine *services.Engine) Option {
+	return func(options *extendedHandleOptions) {
+		options.servicesEngine = engine
+	}
+}
 
 func WithKoordinatorClientSet(koordinatorClientSet koordinatorclientset.Interface) Option {
 	return func(options *extendedHandleOptions) {
@@ -60,18 +69,19 @@ func WithKoordinatorSharedInformerFactory(informerFactory koordinatorinformers.S
 	}
 }
 
-func WithNodeResourceTopologySharedInformerFactory(informerFactory nrtinformers.SharedInformerFactory) Option {
+func WithSharedListerFactory(adapter SharedListerAdapter) Option {
 	return func(options *extendedHandleOptions) {
-		options.nrtSharedInformerFactory = informerFactory
+		options.sharedListerAdapter = adapter
 	}
 }
 
 type frameworkExtendedHandleImpl struct {
 	once sync.Once
 	framework.Handle
+	servicesEngine                   *services.Engine
 	koordinatorClientSet             koordinatorclientset.Interface
 	koordinatorSharedInformerFactory koordinatorinformers.SharedInformerFactory
-	nrtSharedInformerFactory         nrtinformers.SharedInformerFactory
+	sharedListerAdapter              SharedListerAdapter
 }
 
 func NewExtendedHandle(options ...Option) ExtendedHandle {
@@ -81,9 +91,10 @@ func NewExtendedHandle(options ...Option) ExtendedHandle {
 	}
 
 	return &frameworkExtendedHandleImpl{
+		servicesEngine:                   handleOptions.servicesEngine,
 		koordinatorClientSet:             handleOptions.koordinatorClientSet,
 		koordinatorSharedInformerFactory: handleOptions.koordinatorSharedInformerFactory,
-		nrtSharedInformerFactory:         handleOptions.nrtSharedInformerFactory,
+		sharedListerAdapter:              handleOptions.sharedListerAdapter,
 	}
 }
 
@@ -95,8 +106,12 @@ func (ext *frameworkExtendedHandleImpl) KoordinatorSharedInformerFactory() koord
 	return ext.koordinatorSharedInformerFactory
 }
 
-func (ext *frameworkExtendedHandleImpl) NodeResourceTopologySharedInformerFactory() nrtinformers.SharedInformerFactory {
-	return ext.nrtSharedInformerFactory
+func (ext *frameworkExtendedHandleImpl) SnapshotSharedLister() framework.SharedLister {
+	if ext.sharedListerAdapter != nil {
+		return ext.sharedListerAdapter(ext.Handle.SnapshotSharedLister())
+	}
+	return ext.Handle.SnapshotSharedLister()
+
 }
 
 type FrameworkExtender interface {
@@ -121,12 +136,18 @@ type FilterPhaseHook interface {
 	FilterHook(handle ExtendedHandle, cycleState *framework.CycleState, pod *corev1.Pod, nodeInfo *framework.NodeInfo) (*corev1.Pod, *framework.NodeInfo, bool)
 }
 
+type ScorePhaseHook interface {
+	SchedulingPhaseHook
+	ScoreHook(handle ExtendedHandle, cycleState *framework.CycleState, pod *corev1.Pod, nodes []*corev1.Node) (*corev1.Pod, []*corev1.Node, bool)
+}
+
 type frameworkExtenderFactoryImpl struct {
 	handle ExtendedHandle
 
 	// extend framework with SchedulingPhaseHook
 	preFilterHooks []PreFilterPhaseHook
 	filterHooks    []FilterPhaseHook
+	scoreHooks     []ScorePhaseHook
 }
 
 func NewFrameworkExtenderFactory(handle ExtendedHandle, hooks ...SchedulingPhaseHook) FrameworkExtenderFactory {
@@ -143,6 +164,10 @@ func NewFrameworkExtenderFactory(handle ExtendedHandle, hooks ...SchedulingPhase
 		if ok {
 			i.filterHooks = append(i.filterHooks, filter)
 		}
+		score, ok := h.(ScorePhaseHook)
+		if ok {
+			i.scoreHooks = append(i.scoreHooks, score)
+		}
 		klog.V(4).InfoS("framework extender got scheduling hooks registered", "preFilter", preFilter.Name(), "filter", filter.Name())
 	}
 	return i
@@ -154,6 +179,7 @@ func (i *frameworkExtenderFactoryImpl) New(f framework.Framework) FrameworkExten
 		handle:         i.handle,
 		preFilterHooks: i.preFilterHooks,
 		filterHooks:    i.filterHooks,
+		scoreHooks:     i.scoreHooks,
 	}
 }
 
@@ -165,6 +191,7 @@ type frameworkExtenderImpl struct {
 
 	preFilterHooks []PreFilterPhaseHook
 	filterHooks    []FilterPhaseHook
+	scoreHooks     []ScorePhaseHook
 }
 
 // RunPreFilterPlugins hooks the PreFilter phase of framework with pre-filter hooks.
@@ -173,7 +200,7 @@ func (ext *frameworkExtenderImpl) RunPreFilterPlugins(ctx context.Context, cycle
 		newPod, hooked := hook.PreFilterHook(ext.handle, cycleState, pod)
 		if hooked {
 			klog.V(5).InfoS("RunPreFilterPlugins hooked", "hook", hook.Name(), "pod", klog.KObj(pod))
-			return ext.Framework.RunPreFilterPlugins(ctx, cycleState, newPod)
+			pod = newPod
 		}
 	}
 	return ext.Framework.RunPreFilterPlugins(ctx, cycleState, pod)
@@ -187,10 +214,28 @@ func (ext *frameworkExtenderImpl) RunFilterPluginsWithNominatedPods(ctx context.
 		newPod, newNodeInfo, hooked := hook.FilterHook(ext.handle, cycleState, pod, nodeInfo)
 		if hooked {
 			klog.V(5).InfoS("RunFilterPluginsWithNominatedPods hooked", "hook", hook.Name(), "pod", klog.KObj(pod))
-			return ext.Framework.RunFilterPluginsWithNominatedPods(ctx, cycleState, newPod, newNodeInfo)
+			pod = newPod
+			nodeInfo = newNodeInfo
 		}
 	}
 	return ext.Framework.RunFilterPluginsWithNominatedPods(ctx, cycleState, pod, nodeInfo)
+}
+
+func (ext *frameworkExtenderImpl) RunScorePlugins(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodes []*corev1.Node) (framework.PluginToNodeScores, *framework.Status) {
+	for _, hook := range ext.scoreHooks {
+		// hook can change the args (cycleState, pod, nodeInfo) for filter plugins
+		newPod, newNodes, hooked := hook.ScoreHook(ext.handle, state, pod, nodes)
+		if hooked {
+			klog.V(5).InfoS("RunScorePlugins hooked", "hook", hook.Name(), "pod", klog.KObj(pod))
+			pod = newPod
+			nodes = newNodes
+		}
+	}
+	pluginToNodeScores, status := ext.Framework.RunScorePlugins(ctx, state, pod, nodes)
+	if status.IsSuccess() && debugTopNScores > 0 {
+		debugScores(debugTopNScores, pod, pluginToNodeScores, nodes)
+	}
+	return pluginToNodeScores, status
 }
 
 // PluginFactoryProxy is used to proxy the call to the PluginFactory function and pass in the ExtendedHandle for the custom plugin
@@ -200,6 +245,13 @@ func PluginFactoryProxy(extendHandle ExtendedHandle, factoryFn frameworkruntime.
 		impl.once.Do(func() {
 			impl.Handle = handle
 		})
-		return factoryFn(args, extendHandle)
+		plugin, err := factoryFn(args, extendHandle)
+		if err != nil {
+			return nil, err
+		}
+		if impl.servicesEngine != nil {
+			impl.servicesEngine.RegisterPluginService(plugin)
+		}
+		return plugin, nil
 	}
 }

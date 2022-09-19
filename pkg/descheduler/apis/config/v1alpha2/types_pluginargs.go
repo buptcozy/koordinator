@@ -110,10 +110,8 @@ type MigrationControllerArgs struct {
 	// Any pod matching the label selector is considered evictable.
 	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
 
-	// FlowControlQPS controls the number of arbitrations per second
-	FlowControlQPS string `json:"flowControlQPS,omitempty"`
-	// FlowControlBurst is the maximum number of tokens
-	FlowControlBurst int32 `json:"flowControlBurst,omitempty"`
+	// Namespaces carries a list of included/excluded namespaces
+	Namespaces *Namespaces `json:"namespaces,omitempty"`
 
 	// MaxMigratingPerNode represents he maximum number of pods that can be migrating during migrate per node.
 	MaxMigratingPerNode *int32 `json:"maxMigratingPerNode,omitempty"`
@@ -138,6 +136,10 @@ type MigrationControllerArgs struct {
 	// Default is 5 minute
 	DefaultJobTTL *metav1.Duration `json:"defaultJobTTL,omitempty"`
 
+	// EvictQPS controls the number of evict per second
+	EvictQPS string `json:"evictQPS,omitempty"`
+	// EvictBurst is the maximum number of tokens
+	EvictBurst int32 `json:"evictBurst,omitempty"`
 	// EvictionPolicy represents how to delete Pod, support "Delete" and "Eviction", default value is "Eviction"
 	EvictionPolicy string `json:"evictionPolicy,omitempty"`
 	// DefaultDeleteOptions defines options when deleting migrated pods and preempted pods through the method specified by EvictionPolicy

@@ -17,7 +17,13 @@ limitations under the License.
 package v1beta2
 
 import (
+	"math"
+
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	schedconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/utils/pointer"
 )
@@ -52,6 +58,25 @@ var (
 	}
 
 	defaultEnablePreemption = pointer.Bool(false)
+
+	defaultDelayEvictTime       = 120 * time.Second
+	defaultRevokePodInterval    = 1 * time.Second
+	defaultDefaultQuotaGroupMax = corev1.ResourceList{
+		// pkg/scheduler/plugins/elasticquota/controller.go syncHandler patch will overflow when the spec Max/Min is too high.
+		corev1.ResourceCPU:    *resource.NewQuantity(math.MaxInt64/5, resource.DecimalSI),
+		corev1.ResourceMemory: *resource.NewQuantity(math.MaxInt64/5, resource.DecimalSI),
+	}
+	defaultSystemQuotaGroupMax = corev1.ResourceList{
+		corev1.ResourceCPU:    *resource.NewQuantity(math.MaxInt64/5, resource.DecimalSI),
+		corev1.ResourceMemory: *resource.NewQuantity(math.MaxInt64/5, resource.BinarySI),
+	}
+
+	defaultQuotaGroupNamespace = "koordinator-system"
+
+	defaultMonitorAllQuotas = pointer.Bool(true)
+
+	defaultTimeout           = 600 * time.Second
+	defaultControllerWorkers = 1
 )
 
 // SetDefaults_LoadAwareSchedulingArgs sets the default parameters for LoadAwareScheduling plugin.
@@ -86,5 +111,41 @@ func SetDefaults_NodeNUMAResourceArgs(obj *NodeNUMAResourceArgs) {
 func SetDefaults_ReservationArgs(obj *ReservationArgs) {
 	if obj.EnablePreemption == nil {
 		obj.EnablePreemption = defaultEnablePreemption
+	}
+}
+
+func SetDefaults_ElasticQuotaArgs(obj *ElasticQuotaArgs) {
+	if obj.DelayEvictTime == nil {
+		obj.DelayEvictTime = &metav1.Duration{
+			Duration: defaultDelayEvictTime,
+		}
+	}
+	if obj.RevokePodInterval == nil {
+		obj.RevokePodInterval = &metav1.Duration{
+			Duration: defaultRevokePodInterval,
+		}
+	}
+	if len(obj.DefaultQuotaGroupMax) == 0 {
+		obj.DefaultQuotaGroupMax = defaultDefaultQuotaGroupMax
+	}
+	if len(obj.SystemQuotaGroupMax) == 0 {
+		obj.SystemQuotaGroupMax = defaultSystemQuotaGroupMax
+	}
+	if len(obj.QuotaGroupNamespace) == 0 {
+		obj.QuotaGroupNamespace = defaultQuotaGroupNamespace
+	}
+	if obj.MonitorAllQuotas == nil {
+		obj.MonitorAllQuotas = defaultMonitorAllQuotas
+	}
+}
+
+func SetDefaults_CoschedulingArgs(obj *CoschedulingArgs) {
+	if obj.DefaultTimeout == nil {
+		obj.DefaultTimeout = &metav1.Duration{
+			Duration: defaultTimeout,
+		}
+	}
+	if obj.ControllerWorkers == nil {
+		obj.ControllerWorkers = pointer.Int64Ptr(int64(defaultControllerWorkers))
 	}
 }

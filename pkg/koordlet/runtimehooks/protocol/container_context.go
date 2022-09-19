@@ -44,14 +44,16 @@ type ContainerRequest struct {
 	PodLabels      map[string]string
 	PodAnnotations map[string]string
 	CgroupParent   string
+	ContainerEnvs  map[string]string
 }
 
 func (c *ContainerRequest) FromProxy(req *runtimeapi.ContainerResourceHookRequest) {
 	c.PodMeta.FromProxy(req.PodMeta)
-	c.ContainerMeta.FromProxy(req.ContainerMata, req.PodAnnotations)
+	c.ContainerMeta.FromProxy(req.ContainerMeta, req.PodAnnotations)
 	c.PodLabels = req.GetPodLabels()
 	c.PodAnnotations = req.GetPodAnnotations()
 	c.CgroupParent, _ = util.GetContainerCgroupPathWithKubeByID(req.GetPodCgroupParent(), c.ContainerMeta.ID)
+	c.ContainerEnvs = req.GetContainerEnvs()
 }
 
 func (c *ContainerRequest) FromReconciler(podMeta *statesinformer.PodMeta, containerName string) {
@@ -69,10 +71,15 @@ func (c *ContainerRequest) FromReconciler(podMeta *statesinformer.PodMeta, conta
 }
 
 type ContainerResponse struct {
-	Resources Resources
+	Resources     Resources
+	ContainerEnvs map[string]string
 }
 
 func (c *ContainerResponse) ProxyDone(resp *runtimeapi.ContainerResourceHookResponse) {
+	if c.Resources.IsOriginResSet() && resp.ContainerResources == nil {
+		// resource value is injected but origin request is nil, init resource response
+		resp.ContainerResources = &runtimeapi.LinuxContainerResources{}
+	}
 	if c.Resources.CPUSet != nil {
 		resp.ContainerResources.CpusetCpus = *c.Resources.CPUSet
 	}
@@ -81,6 +88,9 @@ func (c *ContainerResponse) ProxyDone(resp *runtimeapi.ContainerResourceHookResp
 	}
 	if c.Resources.CPUShares != nil {
 		resp.ContainerResources.CpuShares = *c.Resources.CPUShares
+	}
+	if c.ContainerEnvs != nil {
+		resp.ContainerEnvs = c.ContainerEnvs
 	}
 }
 

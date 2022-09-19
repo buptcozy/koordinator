@@ -314,8 +314,7 @@ func autoConvert_v1alpha2_MigrationControllerArgs_To_config_MigrationControllerA
 	out.EvictSystemCriticalPods = in.EvictSystemCriticalPods
 	out.IgnorePvcPods = in.IgnorePvcPods
 	out.LabelSelector = (*v1.LabelSelector)(unsafe.Pointer(in.LabelSelector))
-	out.FlowControlQPS = in.FlowControlQPS
-	out.FlowControlBurst = in.FlowControlBurst
+	out.Namespaces = (*config.Namespaces)(unsafe.Pointer(in.Namespaces))
 	out.MaxMigratingPerNode = (*int32)(unsafe.Pointer(in.MaxMigratingPerNode))
 	out.MaxMigratingPerNamespace = (*int32)(unsafe.Pointer(in.MaxMigratingPerNamespace))
 	out.MaxMigratingPerWorkload = (*intstr.IntOrString)(unsafe.Pointer(in.MaxMigratingPerWorkload))
@@ -324,6 +323,8 @@ func autoConvert_v1alpha2_MigrationControllerArgs_To_config_MigrationControllerA
 	if err := v1.Convert_Pointer_v1_Duration_To_v1_Duration(&in.DefaultJobTTL, &out.DefaultJobTTL, s); err != nil {
 		return err
 	}
+	out.EvictQPS = in.EvictQPS
+	out.EvictBurst = in.EvictBurst
 	out.EvictionPolicy = in.EvictionPolicy
 	out.DefaultDeleteOptions = (*v1.DeleteOptions)(unsafe.Pointer(in.DefaultDeleteOptions))
 	return nil
@@ -341,8 +342,7 @@ func autoConvert_config_MigrationControllerArgs_To_v1alpha2_MigrationControllerA
 	out.EvictSystemCriticalPods = in.EvictSystemCriticalPods
 	out.IgnorePvcPods = in.IgnorePvcPods
 	out.LabelSelector = (*v1.LabelSelector)(unsafe.Pointer(in.LabelSelector))
-	out.FlowControlQPS = in.FlowControlQPS
-	out.FlowControlBurst = in.FlowControlBurst
+	out.Namespaces = (*Namespaces)(unsafe.Pointer(in.Namespaces))
 	out.MaxMigratingPerNode = (*int32)(unsafe.Pointer(in.MaxMigratingPerNode))
 	out.MaxMigratingPerNamespace = (*int32)(unsafe.Pointer(in.MaxMigratingPerNamespace))
 	out.MaxMigratingPerWorkload = (*intstr.IntOrString)(unsafe.Pointer(in.MaxMigratingPerWorkload))
@@ -354,6 +354,8 @@ func autoConvert_config_MigrationControllerArgs_To_v1alpha2_MigrationControllerA
 	if err := v1.Convert_v1_Duration_To_Pointer_v1_Duration(&in.DefaultJobTTL, &out.DefaultJobTTL, s); err != nil {
 		return err
 	}
+	out.EvictQPS = in.EvictQPS
+	out.EvictBurst = in.EvictBurst
 	out.EvictionPolicy = in.EvictionPolicy
 	out.DefaultDeleteOptions = (*v1.DeleteOptions)(unsafe.Pointer(in.DefaultDeleteOptions))
 	return nil

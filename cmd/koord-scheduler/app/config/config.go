@@ -17,19 +17,19 @@ limitations under the License.
 package config
 
 import (
-	nrtinformers "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/informers/externalversions"
 	schedulerappconfig "k8s.io/kubernetes/cmd/kube-scheduler/app/config"
 
 	koordinatorclientset "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned"
 	koordinatorinformers "github.com/koordinator-sh/koordinator/pkg/client/informers/externalversions"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext/services"
 )
 
 // Config has all the context to run a Scheduler
 type Config struct {
 	*schedulerappconfig.Config
+	ServicesEngine                   *services.Engine
 	KoordinatorClient                koordinatorclientset.Interface
 	KoordinatorSharedInformerFactory koordinatorinformers.SharedInformerFactory
-	NRTSharedInformerFactory         nrtinformers.SharedInformerFactory
 }
 
 type completedConfig struct {

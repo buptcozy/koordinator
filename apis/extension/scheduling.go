@@ -26,13 +26,24 @@ import (
 )
 
 const (
-	// AnnotationCustomUsageThresholds represents the user-defined resource utilization threshold.
-	// For specific value definitions, see CustomUsageThresholds
-	AnnotationCustomUsageThresholds = SchedulingDomainPrefix + "/usage-thresholds"
+	// LabelReservationOrder controls the preference logic for Reservation.
+	// Reservation with lower order is preferred to be selected before Reservation with higher order.
+	// But if it is 0, Reservation will be selected according to the capacity score.
+	LabelReservationOrder = SchedulingDomainPrefix + "/reservation-order"
 
 	// AnnotationReservationAllocated represents the reservation allocated by the pod.
 	AnnotationReservationAllocated = SchedulingDomainPrefix + "/reservation-allocated"
 )
+
+const (
+	// AnnotationCustomUsageThresholds represents the user-defined resource utilization threshold.
+	// For specific value definitions, see CustomUsageThresholds
+	AnnotationCustomUsageThresholds = SchedulingDomainPrefix + "/usage-thresholds"
+
+	// AnnotationDeviceAllocated represents the device allocated by the pod
+	AnnotationDeviceAllocated = SchedulingDomainPrefix + "/device-allocated"
+)
+
 const (
 	AnnotationGangPrefix = "gang.scheduling.koordinator.sh"
 	// AnnotationGangName specifies the name of the gang
@@ -125,4 +136,61 @@ func RemoveReservationAllocated(pod *corev1.Pod, r *schedulingv1alpha1.Reservati
 		return true, nil
 	}
 	return false, nil
+}
+
+// DeviceAllocations would be injected into Pod as form of annotation during Pre-bind stage.
+/*
+{
+  "gpu": [
+    {
+      "minor": 0,
+      "resources": {
+        "koordinator.sh/gpu-core": 100,
+        "koordinator.sh/gpu-mem-ratio": 100,
+        "koordinator.sh/gpu-mem": "16Gi"
+      }
+    },
+    {
+      "minor": 1,
+      "resources": {
+        "koordinator.sh/gpu-core": 100,
+        "koordinator.sh/gpu-mem-ratio": 100,
+        "koordinator.sh/gpu-mem": "16Gi"
+      }
+    }
+  ]
+}
+*/
+type DeviceAllocations map[schedulingv1alpha1.DeviceType][]*DeviceAllocation
+
+type DeviceAllocation struct {
+	Minor     int32               `json:"minor"`
+	Resources corev1.ResourceList `json:"resources"`
+}
+
+func GetDeviceAllocations(podAnnotations map[string]string) (DeviceAllocations, error) {
+	deviceAllocations := DeviceAllocations{}
+	data, ok := podAnnotations[AnnotationDeviceAllocated]
+	if !ok {
+		return nil, nil
+	}
+	err := json.Unmarshal([]byte(data), &deviceAllocations)
+	if err != nil {
+		return nil, err
+	}
+	return deviceAllocations, nil
+}
+
+func SetDeviceAllocations(pod *corev1.Pod, allocations DeviceAllocations) error {
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+
+	data, err := json.Marshal(allocations)
+	if err != nil {
+		return err
+	}
+
+	pod.Annotations[AnnotationDeviceAllocated] = string(data)
+	return nil
 }

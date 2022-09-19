@@ -28,7 +28,9 @@ import (
 
 	apiext "github.com/koordinator-sh/koordinator/apis/extension"
 	slov1alpha1 "github.com/koordinator-sh/koordinator/apis/slo/v1alpha1"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/executor"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
+	"github.com/koordinator-sh/koordinator/pkg/koordlet/resmanager/configextensions"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/statesinformer"
 	"github.com/koordinator-sh/koordinator/pkg/util"
 	"github.com/koordinator-sh/koordinator/pkg/util/system"
@@ -153,13 +155,13 @@ func (l *burstLimiter) Expire() bool {
 
 type CPUBurst struct {
 	resmanager           *resmanager
-	executor             *ResourceUpdateExecutor
+	executor             *executor.ResourceUpdateExecutor
 	nodeCPUBurstStrategy *slov1alpha1.CPUBurstStrategy
 	containerLimiter     map[string]*burstLimiter
 }
 
 func NewCPUBurst(resmanager *resmanager) *CPUBurst {
-	executor := NewResourceUpdateExecutor("CPUBurstExecutor", resmanager.config.ReconcileIntervalSeconds*60)
+	executor := executor.NewResourceUpdateExecutor("CPUBurstExecutor", resmanager.config.ReconcileIntervalSeconds*60)
 	return &CPUBurst{
 		resmanager:       resmanager,
 		executor:         executor,
@@ -440,35 +442,35 @@ func (b *CPUBurst) applyContainerCFSQuota(podMeta *statesinformer.PodMeta, conta
 		if curPodCFS > 0 {
 			// no need to adjust pod cpu.cfs_quota if it is already -1
 			targetPodCFS := curPodCFS + deltaContainerCFS
-			ownerRef := PodOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name)
+			ownerRef := executor.PodOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name)
 			podCFSValStr := strconv.FormatInt(targetPodCFS, 10)
-			updater := NewCommonCgroupResourceUpdater(ownerRef, podDir, system.CPUCFSQuota, podCFSValStr)
+			updater := executor.NewCommonCgroupResourceUpdater(ownerRef, podDir, system.CPUCFSQuota, podCFSValStr)
 			if err := b.executor.Update(updater); err != nil {
 				return fmt.Errorf("update pod cgroup %v failed, error %v", podMeta.CgroupDir, err)
 			}
 		}
 		targetContainerCFS := curContaienrCFS + deltaContainerCFS
-		ownerRef := ContainerOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name, containerStat.Name)
+		ownerRef := executor.ContainerOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name, containerStat.Name)
 		containerCFSValStr := strconv.FormatInt(targetContainerCFS, 10)
-		updater := NewCommonCgroupResourceUpdater(ownerRef, containerDir, system.CPUCFSQuota, containerCFSValStr)
+		updater := executor.NewCommonCgroupResourceUpdater(ownerRef, containerDir, system.CPUCFSQuota, containerCFSValStr)
 		if err := b.executor.Update(updater); err != nil {
 			return fmt.Errorf("update container cgroup %v failed, error %v", containerDir, err)
 		}
 	} else {
 		// cfs scale down, order: container->pod
 		targetContainerCFS := curContaienrCFS + deltaContainerCFS
-		ownerRef := ContainerOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name, containerStat.Name)
+		ownerRef := executor.ContainerOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name, containerStat.Name)
 		containerCFSValStr := strconv.FormatInt(targetContainerCFS, 10)
-		updater := NewCommonCgroupResourceUpdater(ownerRef, containerDir, system.CPUCFSQuota, containerCFSValStr)
+		updater := executor.NewCommonCgroupResourceUpdater(ownerRef, containerDir, system.CPUCFSQuota, containerCFSValStr)
 		if err := b.executor.Update(updater); err != nil {
 			return fmt.Errorf("update container cgroup %v failed, error %v", containerDir, err)
 		}
 		if curPodCFS > 0 {
 			// no need to adjust pod cpu.cfs_quota if it is already -1
 			targetPodCFS := curPodCFS + deltaContainerCFS
-			ownerRef := PodOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name)
+			ownerRef := executor.PodOwnerRef(podMeta.Pod.Namespace, podMeta.Pod.Name)
 			podCFSValStr := strconv.FormatInt(targetPodCFS, 10)
-			updater := NewCommonCgroupResourceUpdater(ownerRef, podDir, system.CPUCFSQuota, podCFSValStr)
+			updater := executor.NewCommonCgroupResourceUpdater(ownerRef, podDir, system.CPUCFSQuota, podCFSValStr)
 			if err := b.executor.Update(updater); err != nil {
 				return fmt.Errorf("update pod cgroup %v failed, error %v", podMeta.CgroupDir, err)
 			}
@@ -505,9 +507,9 @@ func (b *CPUBurst) applyCPUBurst(burstCfg *slov1alpha1.CPUBurstConfig, podMeta *
 
 		if system.ValidateCgroupValue(&containerCFSBurstVal, containerDir, system.CPUBurst) {
 			podCFSBurstVal += containerCFSBurstVal
-			ownerRef := ContainerOwnerRef(pod.Namespace, pod.Name, container.Name)
+			ownerRef := executor.ContainerOwnerRef(pod.Namespace, pod.Name, container.Name)
 			containerCFSBurstValStr := strconv.FormatInt(containerCFSBurstVal, 10)
-			updater := NewCommonCgroupResourceUpdater(ownerRef, containerDir, system.CPUBurst, containerCFSBurstValStr)
+			updater := executor.NewCommonCgroupResourceUpdater(ownerRef, containerDir, system.CPUBurst, containerCFSBurstValStr)
 			updated, err := b.executor.UpdateByCache(updater)
 			if err == nil {
 				klog.V(5).Infof("apply container %v/%v/%v cpu burst value success, dir %v, value %v",
@@ -525,9 +527,9 @@ func (b *CPUBurst) applyCPUBurst(burstCfg *slov1alpha1.CPUBurstConfig, podMeta *
 
 	podDir := util.GetPodCgroupDirWithKube(podMeta.CgroupDir)
 	if system.ValidateCgroupValue(&podCFSBurstVal, podDir, system.CPUBurst) {
-		ownerRef := PodOwnerRef(pod.Namespace, pod.Name)
+		ownerRef := executor.PodOwnerRef(pod.Namespace, pod.Name)
 		podCFSBurstValStr := strconv.FormatInt(podCFSBurstVal, 10)
-		updater := NewCommonCgroupResourceUpdater(ownerRef, podDir, system.CPUBurst, podCFSBurstValStr)
+		updater := executor.NewCommonCgroupResourceUpdater(ownerRef, podDir, system.CPUBurst, podCFSBurstValStr)
 		updated, err := b.executor.UpdateByCache(updater)
 		if err == nil {
 			klog.V(5).Infof("apply pod %v/%v cpu burst value success, dir %v, value %v",
@@ -571,11 +573,18 @@ func calcStaticCPUBurstVal(container *corev1.Container, burstCfg *slov1alpha1.CP
 
 // use node config by default, overlap if pod specify config
 func genPodBurstConfig(pod *corev1.Pod, nodeCfg *slov1alpha1.CPUBurstConfig) *slov1alpha1.CPUBurstConfig {
-
 	podCPUBurstCfg, err := apiext.GetPodCPUBurstConfig(pod)
 	if err != nil {
 		klog.Infof("parse pod %s/%s cpu burst config failed, error %v", pod.Namespace, pod.Name, err)
 		return nodeCfg
+	}
+
+	if podCPUBurstCfg == nil {
+		var greyCtlCPUBurstCfgIf interface{} = &slov1alpha1.CPUBurstConfig{}
+		injected := configextensions.InjectQOSGreyCtrlPlugins(pod, configextensions.QOSPolicyCPUBurst, &greyCtlCPUBurstCfgIf)
+		if greyCtlCPUBurstCfg, ok := greyCtlCPUBurstCfgIf.(*slov1alpha1.CPUBurstConfig); injected && ok {
+			podCPUBurstCfg = greyCtlCPUBurstCfg
+		}
 	}
 
 	if podCPUBurstCfg == nil {

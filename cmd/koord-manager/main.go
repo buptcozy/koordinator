@@ -37,7 +37,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configv1alpha1 "github.com/koordinator-sh/koordinator/apis/config/v1alpha1"
+	schedulingv1alpha1 "github.com/koordinator-sh/koordinator/apis/scheduling/v1alpha1"
 	slov1alpha1 "github.com/koordinator-sh/koordinator/apis/slo/v1alpha1"
+	"github.com/koordinator-sh/koordinator/cmd/koord-manager/extensions"
 	extclient "github.com/koordinator-sh/koordinator/pkg/client"
 	"github.com/koordinator-sh/koordinator/pkg/features"
 	sloconfig "github.com/koordinator-sh/koordinator/pkg/slo-controller/config"
@@ -64,9 +66,11 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = configv1alpha1.AddToScheme(clientgoscheme.Scheme)
 	_ = slov1alpha1.AddToScheme(clientgoscheme.Scheme)
+	_ = schedulingv1alpha1.AddToScheme(clientgoscheme.Scheme)
 
 	_ = configv1alpha1.AddToScheme(scheme)
 	_ = slov1alpha1.AddToScheme(scheme)
+	_ = schedulingv1alpha1.AddToScheme(scheme)
 
 	scheme.AddUnversionedTypes(metav1.SchemeGroupVersion, &metav1.UpdateOptions{}, &metav1.DeleteOptions{}, &metav1.CreateOptions{})
 	// +kubebuilder:scaffold:scheme
@@ -157,29 +161,33 @@ func main() {
 	}
 
 	if err = (&nodemetric.NodeMetricReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nodemetric-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMetric")
 		os.Exit(1)
 	}
 	if err = (&noderesource.NodeResourceReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		SyncContext: noderesource.NewSyncContext(),
-		Clock:       clock.RealClock{},
+		Recorder:       mgr.GetEventRecorderFor("noderesource-controller"),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		BESyncContext:  noderesource.NewSyncContext(),
+		GPUSyncContext: noderesource.NewSyncContext(),
+		Clock:          clock.RealClock{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeResource")
 		os.Exit(1)
 	}
 	if err = (&nodeslo.NodeSLOReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nodeslo-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeSLO")
 		os.Exit(1)
 	}
-
+	extensions.PrepareExtensions(cfg, mgr)
 	// +kubebuilder:scaffold:builder
 
 	ctx := ctrl.SetupSignalHandler()
@@ -205,6 +213,7 @@ func main() {
 	}()
 
 	setupLog.Info("starting manager")
+	extensions.StartExtensions(ctx, mgr)
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

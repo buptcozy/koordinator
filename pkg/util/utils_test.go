@@ -17,60 +17,25 @@ limitations under the License.
 package util
 
 import (
-	"io/ioutil"
-	"path/filepath"
+	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	clientset "k8s.io/client-go/kubernetes"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/utils/pointer"
 
-	"github.com/koordinator-sh/koordinator/pkg/util/system"
+	schedulingv1alpha1 "github.com/koordinator-sh/koordinator/apis/scheduling/v1alpha1"
+	koordinatorclientset "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned"
+	clientschedulingv1alpha1 "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned/typed/scheduling/v1alpha1"
+	"github.com/koordinator-sh/koordinator/pkg/scheduler/frameworkext"
 )
-
-func Test_MergeCPUSet(t *testing.T) {
-	type args struct {
-		old []int32
-		new []int32
-	}
-	tests := []struct {
-		name string
-		args args
-		want []int32
-	}{
-		{
-			name: "do not panic on empty input",
-		},
-		{
-			name: "merge and sort correctly for disjoint input",
-			args: args{
-				old: []int32{0, 1, 2},
-				new: []int32{5, 8, 7},
-			},
-			want: []int32{8, 7, 5, 2, 1, 0},
-		},
-		{
-			name: "merge and sort correctly for incomplete input",
-			args: args{
-				new: []int32{1, 0, 2},
-			},
-			want: []int32{2, 1, 0},
-		},
-		{
-			name: "merge and sort correctly for intersecting input",
-			args: args{
-				old: []int32{2, 1, 0},
-				new: []int32{1, 7, 5},
-			},
-			want: []int32{7, 5, 2, 1, 0},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := MergeCPUSet(tt.args.old, tt.args.new)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
 
 func Test_MergeCfg(t *testing.T) {
 	type TestingStruct struct {
@@ -181,105 +146,6 @@ func Test_MergeCfg(t *testing.T) {
 	}
 }
 
-func Test_ParseCPUSetStr(t *testing.T) {
-	type args struct {
-		cpusetStr string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    []int32
-		wantErr bool
-	}{
-		{
-			name: "do not panic on empty input",
-		},
-		{
-			name:    "parse mixed cpuset correctly",
-			args:    args{cpusetStr: "0-5,34,46-48"},
-			want:    []int32{0, 1, 2, 3, 4, 5, 34, 46, 47, 48},
-			wantErr: false,
-		},
-		{
-			name:    "parse empty content",
-			args:    args{cpusetStr: "    \n"},
-			want:    nil,
-			wantErr: false,
-		},
-		{
-			name:    "parse and throw an error for illegal input",
-			args:    args{cpusetStr: "   0-5,a,10-13 "},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name:    "parse and throw an error for illegal input 1",
-			args:    args{cpusetStr: "   0,1-b,10-11,13 "},
-			want:    nil,
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, gotErr := ParseCPUSetStr(tt.args.cpusetStr)
-			assert.Equal(t, tt.wantErr, gotErr != nil)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func Test_GenerateCPUSetStr(t *testing.T) {
-	type args struct {
-		cpuset []int32
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{
-			name: "generate for empty input",
-		},
-		{
-			name: "generate for single-element input",
-			args: args{cpuset: []int32{1}},
-			want: "1",
-		},
-		{
-			name: "generate for multi-element input",
-			args: args{cpuset: []int32{5, 3, 1, 0}},
-			want: "5,3,1,0",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GenerateCPUSetStr(tt.args.cpuset)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func Test_UtilCgroupCPUSet(t *testing.T) {
-	// prepare testing files
-	dname := t.TempDir()
-
-	cpuset := []int32{5, 1, 0}
-	cpusetStr := GenerateCPUSetStr(cpuset)
-
-	err := WriteCgroupCPUSet(dname, cpusetStr)
-	assert.NoError(t, err)
-
-	rawContent, err := ioutil.ReadFile(filepath.Join(dname, system.CPUSFileName))
-	assert.NoError(t, err)
-
-	gotCPUSetStr := string(rawContent)
-	assert.Equal(t, cpusetStr, gotCPUSetStr)
-
-	gotCPUSet, err := ParseCPUSetStr(gotCPUSetStr)
-	assert.NoError(t, err)
-	assert.Equal(t, cpuset, gotCPUSet)
-}
-
 func TestMinInt64(t *testing.T) {
 	type args struct {
 		i int64
@@ -364,6 +230,227 @@ func TestMaxInt64(t *testing.T) {
 			if got := MaxInt64(tt.args.i, tt.args.j); got != tt.want {
 				t.Errorf("MaxInt64() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func Test_GeneratePodPatch(t *testing.T) {
+	pod1 := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "test-pod-1",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "test-container-1"},
+				{Name: "test-container-2"},
+			},
+		},
+	}
+	patchAnnotation := map[string]string{"test_case": "Test_GeneratePodPatch"}
+	pod2 := pod1.DeepCopy()
+	pod2.SetAnnotations(patchAnnotation)
+	patchBytes, err := GeneratePodPatch(pod1, pod2)
+	if err != nil {
+		t.Errorf("error creating patch bytes %v", err)
+	}
+	var patchMap map[string]interface{}
+	err = json.Unmarshal(patchBytes, &patchMap)
+	if err != nil {
+		t.Errorf("error unmarshalling json patch : %v", err)
+	}
+	metadata, ok := patchMap["metadata"].(map[string]interface{})
+	if !ok {
+		t.Errorf("error converting metadata to version map")
+	}
+	annotation, _ := metadata["annotations"].(map[string]interface{})
+	if fmt.Sprint(annotation) != fmt.Sprint(patchAnnotation) {
+		t.Errorf("expect patchBytes: %q, got: %q", patchAnnotation, annotation)
+	}
+}
+
+type fakeReservationClientSet struct {
+	koordinatorclientset.Interface
+	clientschedulingv1alpha1.SchedulingV1alpha1Interface
+	clientschedulingv1alpha1.ReservationInterface
+	reservations map[string]*schedulingv1alpha1.Reservation
+	patchErr     map[string]bool
+}
+
+func (f *fakeReservationClientSet) SchedulingV1alpha1() clientschedulingv1alpha1.SchedulingV1alpha1Interface {
+	return f
+}
+
+func (f *fakeReservationClientSet) Reservations() clientschedulingv1alpha1.ReservationInterface {
+	return f
+}
+
+func (f *fakeReservationClientSet) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *schedulingv1alpha1.Reservation, err error) {
+	if f.patchErr[name] {
+		return nil, fmt.Errorf("patch error")
+	}
+	r, ok := f.reservations[name]
+	if !ok {
+		return nil, fmt.Errorf("reservation not found")
+	}
+	return r, nil
+}
+
+type fakeExtendedHandle struct {
+	client      *kubefake.Clientset
+	koordClient *fakeReservationClientSet
+	frameworkext.ExtendedHandle
+}
+
+func (f *fakeExtendedHandle) ClientSet() clientset.Interface {
+	return f.client
+}
+
+func (f *fakeExtendedHandle) KoordinatorClientSet() koordinatorclientset.Interface {
+	return f.koordClient
+}
+
+func TestPatch_PatchPodOrReservation(t *testing.T) {
+	testNormalPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pod-1",
+		},
+	}
+	testR := &schedulingv1alpha1.Reservation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-reservation-0",
+			UID:  "123456",
+		},
+	}
+	testReservePod := NewReservePod(testR)
+	type fields struct {
+		handle      framework.Handle
+		annotations map[string]string
+	}
+	type args struct {
+		pod *corev1.Pod
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "nothing to patch for normal pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{
+					client: kubefake.NewSimpleClientset(testNormalPod),
+				},
+			},
+			args: args{
+				pod: &corev1.Pod{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "patch successfully for normal pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{
+					client: kubefake.NewSimpleClientset(testNormalPod),
+				},
+				annotations: map[string]string{
+					"aaa": "bbb",
+				},
+			},
+			args: args{
+				pod: testNormalPod,
+			},
+			wantErr: false,
+		},
+		{
+			name: "nothing to patch for reserve pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{
+					koordClient: &fakeReservationClientSet{},
+				},
+			},
+			args: args{
+				pod: testReservePod,
+			},
+			wantErr: false,
+		},
+		{
+			name: "patch successfully for reserve pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{
+					koordClient: &fakeReservationClientSet{
+						reservations: map[string]*schedulingv1alpha1.Reservation{
+							testR.Name: testR,
+						},
+					},
+				},
+				annotations: map[string]string{
+					"aaa": "bbb",
+				},
+			},
+			args: args{
+				pod: testReservePod,
+			},
+			wantErr: false,
+		},
+		{
+			name: "patch error for reserve pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{
+					koordClient: &fakeReservationClientSet{
+						reservations: map[string]*schedulingv1alpha1.Reservation{
+							testR.Name: testR,
+						},
+						patchErr: map[string]bool{
+							testR.Name: true,
+						},
+					},
+				},
+				annotations: map[string]string{
+					"aaa": "bbb",
+				},
+			},
+			args: args{
+				pod: testReservePod,
+			},
+			wantErr: true,
+		},
+		{
+			name: "patch not found for reserve pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{
+					koordClient: &fakeReservationClientSet{
+						reservations: map[string]*schedulingv1alpha1.Reservation{},
+					},
+				},
+				annotations: map[string]string{
+					"aaa": "bbb",
+				},
+			},
+			args: args{
+				pod: testReservePod,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing clientset for reserve pod",
+			fields: fields{
+				handle: &fakeExtendedHandle{},
+				annotations: map[string]string{
+					"aaa": "bbb",
+				},
+			},
+			args: args{
+				pod: testReservePod,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, gotErr := NewPatch().WithHandle(tt.fields.handle).AddAnnotations(tt.fields.annotations).PatchPodOrReservation(tt.args.pod)
+			assert.Equal(t, tt.wantErr, gotErr != nil)
 		})
 	}
 }

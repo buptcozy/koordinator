@@ -23,6 +23,7 @@ import (
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/runtimehooks/reconciler"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/runtimehooks/rule"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/statesinformer"
+	"github.com/koordinator-sh/koordinator/pkg/runtimeproxy/config"
 )
 
 type HookPlugin interface {
@@ -47,6 +48,9 @@ func (r *runtimeHook) Run(stopCh <-chan struct{}) error {
 	if err := r.reconciler.Run(stopCh); err != nil {
 		return err
 	}
+	if err := r.server.Register(); err != nil {
+		return err
+	}
 	klog.V(5).Infof("runtime hook server has started")
 	<-stopCh
 	klog.Infof("runtime hook is stopped")
@@ -54,7 +58,19 @@ func (r *runtimeHook) Run(stopCh <-chan struct{}) error {
 }
 
 func NewRuntimeHook(si statesinformer.StatesInformer, cfg *Config) (RuntimeHook, error) {
-	s, err := proxyserver.NewServer(proxyserver.Options{Network: cfg.RuntimeHooksNetwork, Address: cfg.RuntimeHooksAddr})
+	failurePolicy, err := config.GetFailurePolicyType(cfg.RuntimeHooksFailurePolicy)
+	if err != nil {
+		return nil, err
+	}
+	newServerOptions := proxyserver.Options{
+		Network:        cfg.RuntimeHooksNetwork,
+		Address:        cfg.RuntimeHooksAddr,
+		HostEndpoint:   cfg.RuntimeHookHostEndpoint,
+		FailurePolicy:  failurePolicy,
+		ConfigFilePath: cfg.RuntimeHookConfigFilePath,
+		DisableStages:  getDisableStagesMap(cfg.RuntimeHookDisableStages),
+	}
+	s, err := proxyserver.NewServer(newServerOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -86,4 +102,14 @@ func registerPlugins() {
 		}
 		klog.Infof("runtime hook plugin %s enable %v", hookFeature, enabled)
 	}
+}
+
+func getDisableStagesMap(stagesSlice []string) map[string]struct{} {
+	stagesMap := map[string]struct{}{}
+	for _, item := range stagesSlice {
+		if _, ok := stagesMap[item]; !ok {
+			stagesMap[item] = struct{}{}
+		}
+	}
+	return stagesMap
 }
