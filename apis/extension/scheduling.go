@@ -73,6 +73,10 @@ const (
 
 	GangModeStrict    = "Strict"
 	GangModeNonStrict = "NonStrict"
+
+	LabelGangPrefix = "pod-group.scheduling.sigs.k8s.io"
+	LabelGangName   = LabelGangPrefix + "/name"
+	LabelGangMinNum = LabelGangPrefix + "/min-available"
 )
 
 // CustomUsageThresholds supports user-defined node resource utilization thresholds.
